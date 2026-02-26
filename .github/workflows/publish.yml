@@ -75,7 +75,14 @@ jobs:
       - name: Publish to Marketplace
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
-        run: npx @vscode/vsce publish --no-dependencies -p "$VSCE_PAT"
+        run: |
+          OUTPUT=$(npx @vscode/vsce publish --no-dependencies -p "$VSCE_PAT" 2>&1)
+          STATUS=$?
+          echo "$OUTPUT"
+          if [ $STATUS -ne 0 ] && echo "$OUTPUT" | grep -qv "already exists"; then
+            exit $STATUS
+          fi
+          echo "Publish step completed (version may already exist on Marketplace)."
 
       - name: Read version from package.json
         id: ver
