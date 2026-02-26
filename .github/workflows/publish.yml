@@ -76,10 +76,12 @@ jobs:
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
         run: |
+          set +e
           OUTPUT=$(npx @vscode/vsce publish --no-dependencies -p "$VSCE_PAT" 2>&1)
           STATUS=$?
+          set -e
           echo "$OUTPUT"
-          if [ $STATUS -ne 0 ] && echo "$OUTPUT" | grep -qv "already exists"; then
+          if [ $STATUS -ne 0 ] && ! echo "$OUTPUT" | grep -q "already exists"; then
             exit $STATUS
           fi
           echo "Publish step completed (version may already exist on Marketplace)."
