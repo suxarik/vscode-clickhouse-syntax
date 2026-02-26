@@ -3,9 +3,8 @@ name: Publish to VS Code Marketplace
 on:
   push:
     tags:
-      - 'v*.*.*'    # triggers on version tags: v1.0.0, v1.2.3, etc.
+      - 'v*.*.*'
 
-  # Allow manual publish from the Actions tab
   workflow_dispatch:
     inputs:
       version_bump:
@@ -23,7 +22,7 @@ jobs:
     name: Publish Extension
     runs-on: ubuntu-latest
     permissions:
-      contents: write   # needed to push version bump commit + tag
+      contents: write
 
     steps:
       - name: Checkout repository
@@ -40,83 +39,71 @@ jobs:
 
       - name: Configure git identity
         run: |
-          git config user.name  "github-actions[bot]"
+          git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Install dependencies
         run: npm ci
 
-      # ── Tag-triggered: sync package.json version to tag ───────────────────
-      - name: Sync package.json version to tag
+      - name: Sync version to tag (tag push)
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
           TAG_VER="${GITHUB_REF_NAME#v}"
           npm version "$TAG_VER" --no-git-tag-version --allow-same-version
 
-      # ── Manual dispatch: bump version, commit, push tag ───────────────────
-      - name: Bump version (manual trigger)
+      - name: Bump version (manual dispatch)
         if: github.event_name == 'workflow_dispatch'
         run: |
           npm version ${{ inputs.version_bump }} --no-git-tag-version
-          echo "NEW_VERSION=$(jq -r .version package.json)" >> "$GITHUB_ENV"
+          NEW_VER=$(jq -r .version package.json)
+          echo "NEW_VERSION=$NEW_VER" >> "$GITHUB_ENV"
 
-      - name: Commit & push bumped version + tag (manual trigger)
+      - name: Commit and push new version (manual dispatch)
         if: github.event_name == 'workflow_dispatch'
         run: |
           git add package.json package-lock.json
-          git commit -m "chore: release v${{ env.NEW_VERSION }}"
-          git tag "v${{ env.NEW_VERSION }}"
+          git commit -m "chore: release v$NEW_VERSION"
+          git tag "v$NEW_VERSION"
           git push origin HEAD:${{ github.ref_name }} --follow-tags
 
-      # ── Shared build steps ────────────────────────────────────────────────
       - name: Compile TypeScript
         run: npm run compile
 
       - name: Package .vsix
         run: npx @vscode/vsce package --no-dependencies
 
-      - name: Publish to VS Code Marketplace
+      - name: Publish to Marketplace
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
         run: npx @vscode/vsce publish --no-dependencies -p "$VSCE_PAT"
 
-      # ── Extract changelog for this version ────────────────────────────────
-      - name: Get release version
-        id: get_ver
-        run: echo "VERSION=$(jq -r .version package.json)" >> "$GITHUB_OUTPUT"
-
-      - name: Extract changelog section
-        id: changelog
+      - name: Read version from package.json
+        id: ver
         run: |
-          VERSION="${{ steps.get_ver.outputs.VERSION }}"
-          # Extract the block between "## [VERSION]" and the next "## [" heading
-          NOTES=$(awk "/^## \[$VERSION\]/{found=1; next} found && /^## \[/{exit} found{print}" CHANGELOG.md)
-          # Store multi-line output safely
-          {
-            echo "NOTES<<EOF"
-            echo "$NOTES"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
+          VER=$(jq -r .version package.json)
+          echo "value=$VER" >> "$GITHUB_OUTPUT"
 
-      # ── Create GitHub Release ─────────────────────────────────────────────
+      - name: Extract changelog for this version
+        id: notes
+        run: |
+          VER="${{ steps.ver.outputs.value }}"
+          CONTENT=$(awk "/^## \[$VER\]/{f=1;next} f&&/^## \[/{exit} f{print}" CHANGELOG.md)
+          printf 'body<<EOF\n%s\nEOF\n' "$CONTENT" >> "$GITHUB_OUTPUT"
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ steps.get_ver.outputs.VERSION }}
-          name: "ClickHouse SQL Syntax v${{ steps.get_ver.outputs.VERSION }}"
+          tag_name: v${{ steps.ver.outputs.value }}
+          name: ClickHouse SQL Syntax v${{ steps.ver.outputs.value }}
           body: |
-            ${{ steps.changelog.outputs.NOTES }}
+            ${{ steps.notes.outputs.body }}
 
             ---
-            📦 Published to the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=SuXarikisme.clickhouse-syntax)
+            Published to the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=SuXarikisme.clickhouse-syntax)
 
-            **Install via CLI:**
-            ```bash
-            code --install-extension SuXarikisme.clickhouse-syntax
+            Install:
             ```
-            Or download the `.vsix` below and install manually:
-            ```bash
-            code --install-extension clickhouse-syntax-${{ steps.get_ver.outputs.VERSION }}.vsix
+            code --install-extension SuXarikisme.clickhouse-syntax
             ```
           files: "*.vsix"
           draft: false
