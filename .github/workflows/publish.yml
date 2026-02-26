@@ -58,8 +58,7 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         run: |
           npm version ${{ inputs.version_bump }} --no-git-tag-version
-          NEW_VER=$(node -p "require('./package.json').version")
-          echo "NEW_VERSION=$NEW_VER" >> "$GITHUB_ENV"
+          echo "NEW_VERSION=$(jq -r .version package.json)" >> "$GITHUB_ENV"
 
       - name: Commit & push bumped version + tag (manual trigger)
         if: github.event_name == 'workflow_dispatch'
@@ -84,7 +83,7 @@ jobs:
       # ── Extract changelog for this version ────────────────────────────────
       - name: Get release version
         id: get_ver
-        run: echo "VERSION=$(node -p \"require('./package.json').version\")" >> "$GITHUB_OUTPUT"
+        run: echo "VERSION=$(jq -r .version package.json)" >> "$GITHUB_OUTPUT"
 
       - name: Extract changelog section
         id: changelog
