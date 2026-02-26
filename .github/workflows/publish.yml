@@ -1,0 +1,123 @@
+name: Publish to VS Code Marketplace
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'    # triggers on version tags: v1.0.0, v1.2.3, etc.
+
+  # Allow manual publish from the Actions tab
+  workflow_dispatch:
+    inputs:
+      version_bump:
+        description: 'Version bump type'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+jobs:
+  publish:
+    name: Publish Extension
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # needed to push version bump commit + tag
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Configure git identity
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Install dependencies
+        run: npm ci
+
+      # ── Tag-triggered publish ──────────────────────────────────────────────
+      - name: Extract version from tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        id: tag_version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Bump package.json version to match tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: npm version ${{ steps.tag_version.outputs.VERSION }} --no-git-tag-version
+
+      # ── Manual / workflow_dispatch publish ────────────────────────────────
+      - name: Bump version (manual trigger)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          npm version ${{ inputs.version_bump }} --no-git-tag-version
+          NEW_VER=$(node -p "require('./package.json').version")
+          echo "NEW_VERSION=$NEW_VER" >> "$GITHUB_ENV"
+
+      - name: Commit & tag bumped version (manual trigger)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          git add package.json package-lock.json
+          git commit -m "chore: release v${{ env.NEW_VERSION }}"
+          git tag "v${{ env.NEW_VERSION }}"
+          git push origin HEAD:${{ github.ref_name }} --follow-tags
+
+      # ── Shared steps ──────────────────────────────────────────────────────
+      - name: Compile TypeScript
+        run: npm run compile
+
+      - name: Package .vsix
+        run: npx @vscode/vsce package --no-dependencies
+
+      - name: Publish to VS Code Marketplace
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: npx @vscode/vsce publish --no-dependencies -p "$VSCE_PAT"
+
+      - name: Upload VSIX as release asset
+        uses: actions/upload-artifact@v4
+        with:
+          name: clickhouse-syntax.vsix
+          path: "*.vsix"
+          retention-days: 90
+
+      # ── Create GitHub Release ──────────────────────────────────────────────
+      - name: Get version for release notes
+        id: get_ver
+        run: echo "VERSION=$(node -p \"require('./package.json').version\")" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.get_ver.outputs.VERSION }}
+          name: "ClickHouse SQL Syntax v${{ steps.get_ver.outputs.VERSION }}"
+          body: |
+            ## ClickHouse SQL Syntax v${{ steps.get_ver.outputs.VERSION }}
+
+            Published to the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=SuXarikisme.clickhouse-syntax).
+
+            ### Install
+            ```bash
+            code --install-extension SuXarikisme.clickhouse-syntax
+            ```
+            Or download the `.vsix` below and install manually:
+            ```bash
+            code --install-extension clickhouse-syntax-${{ steps.get_ver.outputs.VERSION }}.vsix
+            ```
+
+            See [CHANGELOG.md](https://github.com/suxarik/vscode-clickhouse-syntax/blob/main/CHANGELOG.md) for details.
+          files: "*.vsix"
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,55 @@
+{
+  "comments": {
+    "lineComment": "--",
+    "blockComment": ["/*", "*/"]
+  },
+  "brackets": [
+    ["(", ")"],
+    ["[", "]"],
+    ["{", "}"]
+  ],
+  "autoClosingPairs": [
+    { "open": "(", "close": ")" },
+    { "open": "[", "close": "]" },
+    { "open": "{", "close": "}" },
+    { "open": "'", "close": "'", "notIn": ["string", "comment"] },
+    { "open": "\"", "close": "\"", "notIn": ["string", "comment"] },
+    { "open": "`", "close": "`", "notIn": ["string", "comment"] }
+  ],
+  "surroundingPairs": [
+    ["(", ")"],
+    ["[", "]"],
+    ["{", "}"],
+    ["'", "'"],
+    ["\"", "\""],
+    ["`", "`"]
+  ],
+  "indentationRules": {
+    "increaseIndentPattern": "(?i)^\\s*(SELECT|FROM|WHERE|JOIN|LEFT\\s+JOIN|RIGHT\\s+JOIN|INNER\\s+JOIN|FULL\\s+JOIN|CROSS\\s+JOIN|GROUP\\s+BY|ORDER\\s+BY|HAVING|PREWHERE|WITH|UNION|INTERSECT|EXCEPT|SETTINGS|FORMAT)\\b",
+    "decreaseIndentPattern": "^\\s*\\)"
+  },
+  "folding": {
+    "markers": {
+      "start": "^\\s*--\\s*#?region\\b",
+      "end": "^\\s*--\\s*#?endregion\\b"
+    }
+  },
+  "wordPattern": "[a-zA-Z_][a-zA-Z0-9_]*",
+  "onEnterRules": [
+    {
+      "beforeText": "/\\*",
+      "afterText": "\\*/",
+      "action": {
+        "indent": "indentOutdent",
+        "appendText": " * "
+      }
+    },
+    {
+      "beforeText": "^\\s*\\* ",
+      "action": {
+        "indent": "none",
+        "appendText": "* "
+      }
+    }
+  ]
+}

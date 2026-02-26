@@ -1,0 +1,327 @@
+{
+  "SELECT basic": {
+    "prefix": ["sel", "select"],
+    "body": [
+      "SELECT ${1:*}",
+      "FROM ${2:table_name}",
+      "WHERE ${3:1=1}",
+      "LIMIT ${4:100}"
+    ],
+    "description": "Basic SELECT statement"
+  },
+  "SELECT with GROUP BY": {
+    "prefix": ["selg", "select-group"],
+    "body": [
+      "SELECT",
+      "    ${1:column},",
+      "    count() AS cnt",
+      "FROM ${2:table_name}",
+      "WHERE ${3:1=1}",
+      "GROUP BY ${1:column}",
+      "ORDER BY cnt DESC",
+      "LIMIT ${4:100}"
+    ],
+    "description": "SELECT with GROUP BY"
+  },
+  "SELECT with aggregation": {
+    "prefix": ["sela", "select-agg"],
+    "body": [
+      "SELECT",
+      "    ${1:dimension},",
+      "    count() AS cnt,",
+      "    sum(${2:metric}) AS total,",
+      "    avg(${2:metric}) AS average,",
+      "    min(${2:metric}) AS minimum,",
+      "    max(${2:metric}) AS maximum",
+      "FROM ${3:table_name}",
+      "GROUP BY ${1:dimension}",
+      "ORDER BY cnt DESC",
+      "LIMIT ${4:100}"
+    ],
+    "description": "SELECT with common aggregation functions"
+  },
+  "CREATE TABLE MergeTree": {
+    "prefix": ["ctm", "create-table-mergetree"],
+    "body": [
+      "CREATE TABLE ${1:database}.${2:table_name}",
+      "(",
+      "    ${3:column_name} ${4:UInt64},",
+      "    ${5:event_date} Date,",
+      "    ${6:event_time} DateTime",
+      ")",
+      "ENGINE = MergeTree()",
+      "PARTITION BY toYYYYMM(${5:event_date})",
+      "ORDER BY (${3:column_name})",
+      "SETTINGS index_granularity = 8192;"
+    ],
+    "description": "Create MergeTree table"
+  },
+  "CREATE TABLE ReplicatedMergeTree": {
+    "prefix": ["ctrm", "create-table-replicated"],
+    "body": [
+      "CREATE TABLE ${1:database}.${2:table_name} ON CLUSTER ${3:cluster_name}",
+      "(",
+      "    ${4:column_name} ${5:UInt64},",
+      "    ${6:event_date} Date,",
+      "    ${7:event_time} DateTime",
+      ")",
+      "ENGINE = ReplicatedMergeTree('/clickhouse/tables/{shard}/${1:database}.${2:table_name}', '{replica}')",
+      "PARTITION BY toYYYYMM(${6:event_date})",
+      "ORDER BY (${4:column_name})",
+      "SETTINGS index_granularity = 8192;"
+    ],
+    "description": "Create ReplicatedMergeTree table"
+  },
+  "CREATE TABLE Distributed": {
+    "prefix": ["ctd", "create-table-distributed"],
+    "body": [
+      "CREATE TABLE ${1:database}.${2:table_name}_distributed ON CLUSTER ${3:cluster_name}",
+      "AS ${1:database}.${2:table_name}",
+      "ENGINE = Distributed(${3:cluster_name}, ${1:database}, ${2:table_name}, ${4:rand()});"
+    ],
+    "description": "Create Distributed table"
+  },
+  "CREATE MATERIALIZED VIEW": {
+    "prefix": ["cmv", "create-mat-view"],
+    "body": [
+      "CREATE MATERIALIZED VIEW ${1:database}.${2:view_name}",
+      "TO ${1:database}.${3:target_table}",
+      "AS",
+      "SELECT",
+      "    ${4:columns}",
+      "FROM ${1:database}.${5:source_table}",
+      "WHERE ${6:1=1};"
+    ],
+    "description": "Create Materialized View"
+  },
+  "CREATE DICTIONARY": {
+    "prefix": ["cdict", "create-dictionary"],
+    "body": [
+      "CREATE DICTIONARY ${1:database}.${2:dict_name}",
+      "(",
+      "    ${3:key_column} ${4:UInt64},",
+      "    ${5:value_column} ${6:String}",
+      ")",
+      "PRIMARY KEY ${3:key_column}",
+      "SOURCE(CLICKHOUSE(",
+      "    HOST '${7:localhost}'",
+      "    PORT 9000",
+      "    USER '${8:default}'",
+      "    PASSWORD '${9:}'",
+      "    DB '${10:database}'",
+      "    TABLE '${11:source_table}'",
+      "))",
+      "LAYOUT(HASHED())",
+      "LIFETIME(MIN 300 MAX 360);"
+    ],
+    "description": "Create Dictionary"
+  },
+  "INSERT INTO": {
+    "prefix": ["ins", "insert"],
+    "body": [
+      "INSERT INTO ${1:table_name}",
+      "(${2:columns})",
+      "VALUES",
+      "(${3:values});"
+    ],
+    "description": "INSERT INTO statement"
+  },
+  "ALTER TABLE ADD COLUMN": {
+    "prefix": ["atac", "alter-add-column"],
+    "body": [
+      "ALTER TABLE ${1:database}.${2:table_name}",
+      "ADD COLUMN IF NOT EXISTS ${3:column_name} ${4:String} ${5:DEFAULT ''} AFTER ${6:existing_column};"
+    ],
+    "description": "ALTER TABLE ADD COLUMN"
+  },
+  "ALTER TABLE MODIFY COLUMN": {
+    "prefix": ["atmc", "alter-modify-column"],
+    "body": [
+      "ALTER TABLE ${1:database}.${2:table_name}",
+      "MODIFY COLUMN ${3:column_name} ${4:String};"
+    ],
+    "description": "ALTER TABLE MODIFY COLUMN"
+  },
+  "ALTER TABLE DROP COLUMN": {
+    "prefix": ["atdc", "alter-drop-column"],
+    "body": [
+      "ALTER TABLE ${1:database}.${2:table_name}",
+      "DROP COLUMN IF EXISTS ${3:column_name};"
+    ],
+    "description": "ALTER TABLE DROP COLUMN"
+  },
+  "ALTER TABLE ADD INDEX": {
+    "prefix": ["atai", "alter-add-index"],
+    "body": [
+      "ALTER TABLE ${1:database}.${2:table_name}",
+      "ADD INDEX ${3:index_name} (${4:column}) TYPE ${5|bloom_filter,minmax,set,ngrambf_v1,tokenbf_v1|} GRANULARITY ${6:1};"
+    ],
+    "description": "ALTER TABLE ADD INDEX"
+  },
+  "OPTIMIZE TABLE": {
+    "prefix": ["opt", "optimize"],
+    "body": [
+      "OPTIMIZE TABLE ${1:database}.${2:table_name}${3: PARTITION ${4:partition_id}} FINAL${5: DEDUPLICATE};"
+    ],
+    "description": "OPTIMIZE TABLE"
+  },
+  "SHOW CREATE TABLE": {
+    "prefix": ["sct", "show-create"],
+    "body": [
+      "SHOW CREATE TABLE ${1:database}.${2:table_name};"
+    ],
+    "description": "SHOW CREATE TABLE"
+  },
+  "DESCRIBE TABLE": {
+    "prefix": ["desc", "describe"],
+    "body": [
+      "DESCRIBE TABLE ${1:database}.${2:table_name};"
+    ],
+    "description": "DESCRIBE TABLE"
+  },
+  "arrayMap lambda": {
+    "prefix": ["amap", "array-map"],
+    "body": [
+      "arrayMap(x -> ${1:expression(x)}, ${2:array})"
+    ],
+    "description": "arrayMap with lambda"
+  },
+  "arrayFilter lambda": {
+    "prefix": ["afilt", "array-filter"],
+    "body": [
+      "arrayFilter(x -> ${1:condition(x)}, ${2:array})"
+    ],
+    "description": "arrayFilter with lambda"
+  },
+  "groupArray": {
+    "prefix": ["garr", "group-array"],
+    "body": [
+      "groupArray(${1:limit})(${2:column})"
+    ],
+    "description": "groupArray aggregate function"
+  },
+  "quantile": {
+    "prefix": "quantile",
+    "body": [
+      "quantile(${1:0.95})(${2:column})"
+    ],
+    "description": "quantile function"
+  },
+  "quantiles": {
+    "prefix": "quantiles",
+    "body": [
+      "quantiles(${1:0.5}, ${2:0.75}, ${3:0.95}, ${4:0.99})(${5:column})"
+    ],
+    "description": "Multiple quantiles"
+  },
+  "WINDOW function": {
+    "prefix": ["win", "window"],
+    "body": [
+      "${1|row_number,rank,dense_rank,lag,lead,first_value,last_value,nth_value,sum,avg,count,min,max|}() OVER (",
+      "    PARTITION BY ${2:column}",
+      "    ORDER BY ${3:column} ${4|ASC,DESC|}",
+      "    ${5:ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW}",
+      ")"
+    ],
+    "description": "Window function with OVER clause"
+  },
+  "CTE with": {
+    "prefix": ["cte", "with"],
+    "body": [
+      "WITH",
+      "    ${1:cte_name} AS (",
+      "        SELECT ${2:columns}",
+      "        FROM ${3:table}",
+      "    )",
+      "SELECT *",
+      "FROM ${1:cte_name}",
+      "LIMIT ${4:100}"
+    ],
+    "description": "Common Table Expression (CTE)"
+  },
+  "toStartOfInterval": {
+    "prefix": ["tosoi", "start-of-interval"],
+    "body": [
+      "toStartOfInterval(${1:timestamp}, INTERVAL ${2:1} ${3|SECOND,MINUTE,HOUR,DAY,WEEK,MONTH,QUARTER,YEAR|})"
+    ],
+    "description": "toStartOfInterval function"
+  },
+  "dictGet": {
+    "prefix": ["dget", "dict-get"],
+    "body": [
+      "dictGet('${1:database}.${2:dict_name}', '${3:attribute}', ${4:key})"
+    ],
+    "description": "dictGet function"
+  },
+  "CASE WHEN": {
+    "prefix": ["case", "case-when"],
+    "body": [
+      "CASE",
+      "    WHEN ${1:condition1} THEN ${2:result1}",
+      "    WHEN ${3:condition2} THEN ${4:result2}",
+      "    ELSE ${5:default_result}",
+      "END"
+    ],
+    "description": "CASE WHEN expression"
+  },
+  "multiIf": {
+    "prefix": ["mif", "multi-if"],
+    "body": [
+      "multiIf(",
+      "    ${1:condition1}, ${2:result1},",
+      "    ${3:condition2}, ${4:result2},",
+      "    ${5:default_result}",
+      ")"
+    ],
+    "description": "multiIf function"
+  },
+  "JOIN": {
+    "prefix": ["join"],
+    "body": [
+      "${1|INNER,LEFT,RIGHT,FULL,CROSS,LEFT SEMI,RIGHT SEMI,LEFT ANTI,RIGHT ANTI,LEFT ASOF|} JOIN ${2:table_name} ${3:t2}",
+      "    ON ${4:t1}.${5:id} = ${3:t2}.${6:id}"
+    ],
+    "description": "JOIN clause"
+  },
+  "FORMAT": {
+    "prefix": ["fmt", "format"],
+    "body": [
+      "FORMAT ${1|TabSeparated,CSV,CSVWithNames,JSONEachRow,JSONCompact,Pretty,PrettyCompact,PrettyCompactMonoBlock,Vertical,Values,LineAsString,RawBLOB,RowBinary,Native,Null,XML,CapnProto,Protobuf,Avro,Arrow,ORC,Parquet|}"
+    ],
+    "description": "FORMAT clause"
+  },
+  "SETTINGS": {
+    "prefix": ["settings"],
+    "body": [
+      "SETTINGS",
+      "    ${1:max_threads} = ${2:4},",
+      "    ${3:max_memory_usage} = ${4:10000000000}"
+    ],
+    "description": "SETTINGS clause"
+  },
+  "CREATE TABLE with TTL": {
+    "prefix": ["ctttl", "create-table-ttl"],
+    "body": [
+      "CREATE TABLE ${1:database}.${2:table_name}",
+      "(",
+      "    ${3:column_name} ${4:UInt64},",
+      "    ${5:event_date} Date,",
+      "    ${6:event_time} DateTime",
+      ")",
+      "ENGINE = MergeTree()",
+      "PARTITION BY toYYYYMM(${5:event_date})",
+      "ORDER BY (${3:column_name})",
+      "TTL ${5:event_date} + INTERVAL ${7:90} DAY",
+      "SETTINGS index_granularity = 8192;"
+    ],
+    "description": "Create MergeTree table with TTL"
+  },
+  "Number format": {
+    "prefix": ["readfmt", "readable"],
+    "body": [
+      "formatReadableSize(${1:bytes})",
+      "formatReadableQuantity(${2:number})"
+    ],
+    "description": "Human-readable format functions"
+  }
+}

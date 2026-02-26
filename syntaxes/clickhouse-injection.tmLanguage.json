@@ -1,0 +1,89 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "ClickHouse SQL Injection",
+  "scopeName": "source.sql.clickhouse.injection",
+  "injectionSelector": "L:source.sql",
+  "patterns": [
+    { "include": "#ch-data-types" },
+    { "include": "#ch-engines" },
+    { "include": "#ch-aggregate-functions" },
+    { "include": "#ch-array-functions" },
+    { "include": "#ch-type-functions" },
+    { "include": "#ch-date-functions" },
+    { "include": "#ch-keywords" }
+  ],
+  "repository": {
+    "ch-data-types": {
+      "patterns": [
+        {
+          "name": "storage.type.integer.sql.clickhouse",
+          "match": "(?i)\\b(UInt8|UInt16|UInt32|UInt64|UInt128|UInt256|Int8|Int16|Int32|Int64|Int128|Int256)\\b"
+        },
+        {
+          "name": "storage.type.float.sql.clickhouse",
+          "match": "(?i)\\b(Float32|Float64|BFloat16)\\b"
+        },
+        {
+          "name": "storage.type.string.sql.clickhouse",
+          "match": "(?i)\\b(FixedString|UUID|IPv4|IPv6)\\b"
+        },
+        {
+          "name": "storage.type.datetime.sql.clickhouse",
+          "match": "(?i)\\b(Date32|DateTime32|DateTime64)\\b"
+        },
+        {
+          "name": "storage.type.special.sql.clickhouse",
+          "match": "(?i)\\b(Nullable|LowCardinality|AggregateFunction|SimpleAggregateFunction|Enum8|Enum16)\\b"
+        }
+      ]
+    },
+    "ch-engines": {
+      "patterns": [
+        {
+          "name": "support.class.engine.mergetree.sql.clickhouse",
+          "match": "(?i)\\b(MergeTree|ReplicatedMergeTree|ReplacingMergeTree|ReplicatedReplacingMergeTree|SummingMergeTree|ReplicatedSummingMergeTree|AggregatingMergeTree|ReplicatedAggregatingMergeTree|CollapsingMergeTree|ReplicatedCollapsingMergeTree|VersionedCollapsingMergeTree|ReplicatedVersionedCollapsingMergeTree)\\b"
+        }
+      ]
+    },
+    "ch-aggregate-functions": {
+      "patterns": [
+        {
+          "name": "support.function.aggregate.sql.clickhouse",
+          "match": "(?i)\\b(groupArray|groupUniqArray|groupArrayInsertAt|argMin|argMax|uniq|uniqExact|uniqHLL12|uniqCombined|uniqCombined64|quantile|quantileExact|quantileTDigest|anyHeavy|anyLast|anyLastIf|sumKahan|deltaSum|topK|topKWeighted|windowFunnel|retention|sequenceCount|sequenceMatch|sequenceNextNode)(?=\\s*\\()"
+        }
+      ]
+    },
+    "ch-array-functions": {
+      "patterns": [
+        {
+          "name": "support.function.array.sql.clickhouse",
+          "match": "(?i)\\b(arrayJoin|arrayMap|arrayFilter|arrayFlatten|arrayCompact|arrayUniq|arraySort|arrayReverseSort|arrayReduce|arrayFirst|arrayLast|arrayExists|arrayAll|arrayCount|arrayDistinct|arrayEnumerate|arrayDifference|arrayProduct|arrayStringConcat|arrayCumSum|arrayCumSumNonNegative|arrayRotateLeft|arrayRotateRight|hasAll|hasAny|hasSubstr|indexOf|flatten)(?=\\s*\\()"
+        }
+      ]
+    },
+    "ch-type-functions": {
+      "patterns": [
+        {
+          "name": "support.function.type.sql.clickhouse",
+          "match": "(?i)\\b(toInt8|toInt16|toInt32|toInt64|toInt128|toInt256|toUInt8|toUInt16|toUInt32|toUInt64|toUInt128|toUInt256|toFloat32|toFloat64|toDecimal32|toDecimal64|toDecimal128|toDecimal256|toFixedString|toStringCutToZero|toTypeName|accurateCast|accurateCastOrNull|accurateCastOrDefault|reinterpretAsUInt8|reinterpretAsUInt32|reinterpretAsUInt64|reinterpretAsInt32|reinterpretAsInt64|reinterpretAsFloat32|reinterpretAsFloat64|reinterpretAsString|bitCast|generateUUIDv4|generateUUIDv7|UUIDStringToNum|UUIDNumToString|IPv4NumToString|IPv6NumToString|IPv4StringToNum|IPv6StringToNum|toIPv4|toIPv6)(?=\\s*\\()"
+        }
+      ]
+    },
+    "ch-date-functions": {
+      "patterns": [
+        {
+          "name": "support.function.date.sql.clickhouse",
+          "match": "(?i)\\b(now64|toDate32|toDateTime32|toDateTime64|toUnixTimestamp64Milli|toUnixTimestamp64Micro|toUnixTimestamp64Nano|fromUnixTimestamp64Milli|fromUnixTimestamp64Micro|fromUnixTimestamp64Nano|toStartOfISOYear|toLastDayOfMonth|toStartOfFiveMinutes|toStartOfTenMinutes|toStartOfFifteenMinutes|toRelativeYearNum|toRelativeQuarterNum|toRelativeMonthNum|toRelativeWeekNum|toRelativeDayNum|toRelativeHourNum|toRelativeMinuteNum|toRelativeSecondNum|formatDateTimeInJodaSyntax|parseDateTimeBestEffort|parseDateTimeBestEffortUS|parseDateTimeBestEffortOrNull|parseDateTimeBestEffortUSOrNull|parseDateTimeBestEffortOrZero|parseDateTimeBestEffortUSOrZero|parseDateTime|parseDateTimeInJodaSyntax|addYears|addMonths|addWeeks|addDays|addHours|addMinutes|addSeconds|addQuarters|subtractYears|subtractMonths|subtractWeeks|subtractDays|subtractHours|subtractMinutes|subtractSeconds|subtractQuarters|dateDiff|date_diff|dateTrunc|date_trunc|dateAdd|date_add|dateSub|date_sub|toMillisecond)(?=\\s*\\()"
+        }
+      ]
+    },
+    "ch-keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.clickhouse",
+          "match": "(?i)\\b(PREWHERE|SAMPLE|FINAL|ASOF|ANTI|SEMI|GLOBAL|FORMAT|SETTINGS|LIMIT\\s+BY|WITH\\s+ROLLUP|WITH\\s+CUBE|WITH\\s+TOTALS|OPTIMIZE|DEDUPLICATE|ATTACH|DETACH|TTL|CODEC|PARTITION|MUTATION|SYSTEM|RELOAD|FLUSH|KILL|SYNC|ASYNC)\\b"
+        }
+      ]
+    }
+  }
+}

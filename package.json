@@ -1,0 +1,131 @@
+{
+  "name": "clickhouse-syntax",
+  "displayName": "ClickHouse SQL Syntax",
+  "description": "Syntax highlighting, auto-detection, formatting and 400+ completions for ClickHouse SQL — MergeTree engines, ClickHouse-exclusive types, functions and clauses.",
+  "version": "1.0.0",
+  "publisher": "SuXarikisme",
+  "icon": "images/clickhouse.png",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Formatters",
+    "Snippets"
+  ],
+  "keywords": [
+    "clickhouse",
+    "sql",
+    "database",
+    "syntax",
+    "highlight"
+  ],
+  "galleryBanner": {
+    "color": "#1A1A2E",
+    "theme": "dark"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/suxarik/vscode-clickhouse-syntax.git"
+  },
+  "homepage": "https://github.com/suxarik/vscode-clickhouse-syntax#readme",
+  "bugs": {
+    "url": "https://github.com/suxarik/vscode-clickhouse-syntax/issues"
+  },
+  "activationEvents": [
+    "onLanguage:sql",
+    "onLanguage:plaintext",
+    "onLanguage:clickhouse"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "clickhouse",
+        "aliases": [
+          "ClickHouse SQL",
+          "clickhouse",
+          "chsql"
+        ],
+        "extensions": [
+          ".chsql",
+          ".ch.sql"
+        ],
+        "firstLine": "^--\\s*(clickhouse|ClickHouse)",
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "./images/clickhouse.png",
+          "dark": "./images/clickhouse.png"
+        }
+      }
+    ],
+    "commands": [
+      {
+        "command": "clickhouse.detectLanguage",
+        "title": "ClickHouse: Detect & Set ClickHouse SQL Language",
+        "category": "ClickHouse"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "clickhouse",
+        "scopeName": "source.sql.clickhouse",
+        "path": "./syntaxes/clickhouse.tmLanguage.json"
+      },
+      {
+        "scopeName": "source.sql.clickhouse.injection",
+        "path": "./syntaxes/clickhouse-injection.tmLanguage.json",
+        "injectTo": [
+          "source.sql"
+        ]
+      }
+    ],
+    "snippets": [
+      {
+        "language": "clickhouse",
+        "path": "./snippets/clickhouse.json"
+      },
+      {
+        "language": "sql",
+        "path": "./snippets/clickhouse.json"
+      }
+    ],
+    "configuration": {
+      "title": "ClickHouse SQL",
+      "properties": {
+        "clickhouse.format.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable ClickHouse SQL formatting"
+        },
+        "clickhouse.format.keywordCase": {
+          "type": "string",
+          "enum": [
+            "upper",
+            "lower",
+            "preserve"
+          ],
+          "default": "upper",
+          "description": "Keyword case for formatting"
+        },
+        "clickhouse.format.indentSize": {
+          "type": "number",
+          "default": 4,
+          "description": "Number of spaces for indentation"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^18.0.0",
+    "@types/vscode": "^1.75.0",
+    "@vscode/vsce": "^2.19.0",
+    "typescript": "^5.0.0"
+  }
+}

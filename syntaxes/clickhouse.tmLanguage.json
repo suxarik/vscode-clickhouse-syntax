@@ -1,0 +1,325 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "ClickHouse SQL",
+  "scopeName": "source.sql.clickhouse",
+  "fileTypes": ["chsql", "ch.sql"],
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#constants" },
+    { "include": "#operators" },
+    { "include": "#ch-data-types" },
+    { "include": "#ch-engines" },
+    { "include": "#ch-aggregate-functions" },
+    { "include": "#ch-array-functions" },
+    { "include": "#ch-string-functions" },
+    { "include": "#ch-date-functions" },
+    { "include": "#ch-math-functions" },
+    { "include": "#ch-type-functions" },
+    { "include": "#ch-conditional-functions" },
+    { "include": "#ch-other-functions" },
+    { "include": "#ch-keywords" },
+    { "include": "#sql-keywords" },
+    { "include": "#identifiers" },
+    { "include": "#punctuation" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-dash.sql.clickhouse",
+          "match": "--.*$"
+        },
+        {
+          "name": "comment.block.sql.clickhouse",
+          "begin": "/\\*",
+          "end": "\\*/",
+          "beginCaptures": {
+            "0": { "name": "punctuation.definition.comment.begin.sql.clickhouse" }
+          },
+          "endCaptures": {
+            "0": { "name": "punctuation.definition.comment.end.sql.clickhouse" }
+          }
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.single.sql.clickhouse",
+          "begin": "'",
+          "end": "'",
+          "beginCaptures": {
+            "0": { "name": "punctuation.definition.string.begin.sql.clickhouse" }
+          },
+          "endCaptures": {
+            "0": { "name": "punctuation.definition.string.end.sql.clickhouse" }
+          },
+          "patterns": [
+            {
+              "name": "constant.character.escape.sql.clickhouse",
+              "match": "\\\\(?:[nrtbf\\\\'0]|x[0-9A-Fa-f]{2}|u[0-9A-Fa-f]{4})"
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.double.sql.clickhouse",
+          "begin": "\"",
+          "end": "\"",
+          "beginCaptures": {
+            "0": { "name": "punctuation.definition.string.begin.sql.clickhouse" }
+          },
+          "endCaptures": {
+            "0": { "name": "punctuation.definition.string.end.sql.clickhouse" }
+          },
+          "patterns": [
+            {
+              "name": "constant.character.escape.sql.clickhouse",
+              "match": "\\\\(?:[nrtbf\\\\'\"0]|x[0-9A-Fa-f]{2}|u[0-9A-Fa-f]{4})"
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.backtick.sql.clickhouse",
+          "begin": "`",
+          "end": "`",
+          "beginCaptures": {
+            "0": { "name": "punctuation.definition.string.begin.sql.clickhouse" }
+          },
+          "endCaptures": {
+            "0": { "name": "punctuation.definition.string.end.sql.clickhouse" }
+          }
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.hex.sql.clickhouse",
+          "match": "\\b0[xX][0-9A-Fa-f]+\\b"
+        },
+        {
+          "name": "constant.numeric.float.sql.clickhouse",
+          "match": "\\b\\d+\\.\\d+([eE][+-]?\\d+)?\\b"
+        },
+        {
+          "name": "constant.numeric.integer.sql.clickhouse",
+          "match": "\\b\\d+([eE][+-]?\\d+)?\\b"
+        }
+      ]
+    },
+    "constants": {
+      "patterns": [
+        {
+          "name": "constant.language.boolean.sql.clickhouse",
+          "match": "(?i)\\b(TRUE|FALSE)\\b"
+        },
+        {
+          "name": "constant.language.null.sql.clickhouse",
+          "match": "(?i)\\bNULL\\b"
+        },
+        {
+          "name": "constant.language.sql.clickhouse",
+          "match": "(?i)\\b(INF|NAN|INFINITY)\\b"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.comparison.sql.clickhouse",
+          "match": "(=|!=|<>|<=|>=|<|>|<=>)"
+        },
+        {
+          "name": "keyword.operator.arithmetic.sql.clickhouse",
+          "match": "(\\+|-|\\*|\\/|%|\\^)"
+        },
+        {
+          "name": "keyword.operator.logical.sql.clickhouse",
+          "match": "(?i)\\b(AND|OR|NOT|XOR)\\b"
+        },
+        {
+          "name": "keyword.operator.word.sql.clickhouse",
+          "match": "(?i)\\b(IN|NOT\\s+IN|LIKE|NOT\\s+LIKE|ILIKE|NOT\\s+ILIKE|BETWEEN|NOT\\s+BETWEEN|IS|IS\\s+NOT|EXISTS|GLOBAL\\s+IN|GLOBAL\\s+NOT\\s+IN|ALL|ANY|SOME|HAS|HASANY|HASALL)\\b"
+        },
+        {
+          "name": "keyword.operator.pipe.sql.clickhouse",
+          "match": "->|::|\\|\\||\\?"
+        }
+      ]
+    },
+    "ch-data-types": {
+      "patterns": [
+        {
+          "name": "storage.type.integer.sql.clickhouse",
+          "match": "(?i)\\b(UInt8|UInt16|UInt32|UInt64|UInt128|UInt256|Int8|Int16|Int32|Int64|Int128|Int256)\\b"
+        },
+        {
+          "name": "storage.type.float.sql.clickhouse",
+          "match": "(?i)\\b(Float32|Float64|BFloat16)\\b"
+        },
+        {
+          "name": "storage.type.decimal.sql.clickhouse",
+          "match": "(?i)\\b(Decimal|Decimal32|Decimal64|Decimal128|Decimal256)\\s*(?=\\(|\\b)"
+        },
+        {
+          "name": "storage.type.string.sql.clickhouse",
+          "match": "(?i)\\b(String|FixedString|UUID|IPv4|IPv6)\\b"
+        },
+        {
+          "name": "storage.type.datetime.sql.clickhouse",
+          "match": "(?i)\\b(Date|Date32|DateTime|DateTime32|DateTime64)\\b"
+        },
+        {
+          "name": "storage.type.complex.sql.clickhouse",
+          "match": "(?i)\\b(Array|Tuple|Map|Nested|Set|Nothing|Interval|JSON|Object|Dynamic)\\b"
+        },
+        {
+          "name": "storage.type.special.sql.clickhouse",
+          "match": "(?i)\\b(Nullable|LowCardinality|AggregateFunction|SimpleAggregateFunction|Enum8|Enum16|Enum|Point|Ring|Polygon|MultiPolygon|LineString|MultiLineString)\\b"
+        },
+        {
+          "name": "storage.type.bool.sql.clickhouse",
+          "match": "(?i)\\b(Bool|Boolean)\\b"
+        }
+      ]
+    },
+    "ch-engines": {
+      "patterns": [
+        {
+          "name": "support.class.engine.mergetree.sql.clickhouse",
+          "match": "(?i)\\b(MergeTree|ReplicatedMergeTree|ReplacingMergeTree|ReplicatedReplacingMergeTree|SummingMergeTree|ReplicatedSummingMergeTree|AggregatingMergeTree|ReplicatedAggregatingMergeTree|CollapsingMergeTree|ReplicatedCollapsingMergeTree|VersionedCollapsingMergeTree|ReplicatedVersionedCollapsingMergeTree|GraphiteMergeTree|ReplicatedGraphiteMergeTree)\\b"
+        },
+        {
+          "name": "support.class.engine.special.sql.clickhouse",
+          "match": "(?i)\\b(TinyLog|Log|StripeLog|Memory|Buffer|Null|Set|Join|URL|File|Dictionary|Distributed|MaterializedView|View|LiveView|Window|Kafka|RabbitMQ|S3|HDFS|EmbeddedRocksDB|PostgreSQL|MySQL|SQLite|MongoDB|NATS|Redis|Hudi|DeltaLake|IcebergS3|IcebergHDFS|GenerateRandom)\\b"
+        }
+      ]
+    },
+    "ch-aggregate-functions": {
+      "patterns": [
+        {
+          "name": "support.function.aggregate.sql.clickhouse",
+          "match": "(?i)\\b(count|sum|avg|min|max|any|anyLast|anyHeavy|first_value|last_value|groupArray|groupUniqArray|groupArrayInsertAt|groupArrayMovingAvg|groupArrayMovingSum|groupArraySample|groupBitAnd|groupBitOr|groupBitXor|groupBitmap|groupBitmapAnd|groupBitmapOr|groupBitmapXor|argMin|argMax|uniq|uniqExact|uniqHLL12|uniqCombined|uniqCombined64|uniqTheta|median|medianExact|medianExactWeighted|medianTiming|medianTimingWeighted|medianDeterministic|medianTDigest|medianTDigestWeighted|quantile|quantileExact|quantileExactWeighted|quantileTiming|quantileTimingWeighted|quantileDeterministic|quantileTDigest|quantileTDigestWeighted|quantileDD|quantiles|quantilesExact|quantilesExactWeighted|quantilesTiming|quantilesTimingWeighted|quantilesDeterministic|quantilesTDigest|quantilesTDigestWeighted|simpleLinearRegression|stochasticLinearRegression|stochasticLogisticRegression|categoricalInformationValue|contingency|cramersV|cramersVBiasCorrected|theilsU|corr|corrMatrix|covarSamp|covarPop|covarSampMatrix|covarPopMatrix|rankCorr|studentTTest|welchTTest|mannWhitneyUTest|kolmogorovSmirnovTest|sumKahan|deltaSumTimestamp|deltaSum|maxMap|minMap|sumMap|skewSamp|skewPop|kurtSamp|kurtPop|entropy|meanZTest|sparkBar|histogram|sequenceCount|sequenceMatch|sequenceNextNode|windowFunnel|retention|timeSeriesGroupSum|timeSeriesGroupRateSum|sumWithOverflow|topK|topKWeighted|boundingRatio|aggThrow|intervalLengthSum|sumCount|largestTriangleThreeBuckets)(?=\\s*\\()"
+        }
+      ]
+    },
+    "ch-array-functions": {
+      "patterns": [
+        {
+          "name": "support.function.array.sql.clickhouse",
+          "match": "(?i)\\b(array|arrayJoin|arrayMap|arrayFilter|arrayFlatten|arrayCompact|arrayUniq|arrayConcat|arraySlice|arraySort|arrayReverseSort|arraySortByKey|arrayReverse|arrayPopBack|arrayPopFront|arrayPushBack|arrayPushFront|arrayResize|arrayIntersect|arrayDistinct|arrayEnumerate|arrayEnumerateDense|arrayEnumerateUniq|arrayReduce|arrayReduceInRanges|arrayElement|arrayFirst|arrayLast|arrayFirstIndex|arrayLastIndex|arrayMin|arrayMax|arraySum|arrayAvg|arrayExists|arrayAll|arrayCount|arrayDifference|arrayWithConstant|arrayZip|arrayZipUnaligned|arrayProduct|range|emptyArrayUInt8|emptyArrayUInt16|emptyArrayUInt32|emptyArrayUInt64|emptyArrayInt8|emptyArrayInt16|emptyArrayInt32|emptyArrayInt64|emptyArrayFloat32|emptyArrayFloat64|emptyArrayDate|emptyArrayDateTime|emptyArrayString|emptyArrayToSingle|has|hasAll|hasAny|hasSubstr|indexOf|countEqual|flatten|arrayStringConcat|arrayCumSum|arrayCumSumNonNegative|arrayRotateLeft|arrayRotateRight|arrayShiftLeft|arrayShiftRight|arrayNorm|arrayDotProduct|arrayL1Norm|arrayL2Norm|arrayLinfNorm|arrayL2SquaredNorm|arrayDistance|arrayL1Distance|arrayL2Distance|arrayLinfDistance|arrayL2SquaredDistance|arrayHammingDistance|arrayChiSquareDistance|arrayJaccardIndex)(?=\\s*\\()"
+        }
+      ]
+    },
+    "ch-string-functions": {
+      "patterns": [
+        {
+          "name": "support.function.string.sql.clickhouse",
+          "match": "(?i)\\b(empty|notEmpty|length|lengthUTF8|lower|upper|lowerUTF8|upperUTF8|isValidUTF8|toValidUTF8|reverse|reverseUTF8|concat|concatAssumeInjective|concatWithSeparator|concatWithSeparatorAssumeInjective|substring|substringUTF8|substringIndex|substringIndexUTF8|left|right|leftUTF8|rightUTF8|leftPad|rightPad|leftPadUTF8|rightPadUTF8|trim|ltrim|rtrim|trimLeft|trimRight|trimBoth|trimLeftUTF8|trimRightUTF8|trimBothUTF8|CRC32|CRC32IEEE|CRC64|normalizeString|normalizeUTF8NFC|normalizeUTF8NFD|normalizeUTF8NFKC|normalizeUTF8NFKD|startsWith|endsWith|startswithstr|char|repeat|format|position|positionCaseInsensitive|positionUTF8|positionCaseInsensitiveUTF8|multiSearchAll|multiSearchAny|multiSearchFirstIndex|multiSearchFirstPosition|multiSearchAllPositions|multiSearchAllPositionsCaseInsensitive|multiSearchAllPositionsUTF8|multiSearchAllPositionsCaseInsensitiveUTF8|match|multiMatchAny|multiMatchAnyIndex|multiMatchAllIndices|multiFuzzyMatchAny|multiFuzzyMatchAnyIndex|multiFuzzyMatchAllIndices|extract|extractAll|extractAllGroupsHorizontal|extractAllGroupsVertical|extractTextFromHTML|like|ilike|notLike|notILike|ngramDistance|ngramDistanceCaseInsensitive|ngramDistanceUTF8|ngramDistanceCaseInsensitiveUTF8|ngramSearch|ngramSearchCaseInsensitive|ngramSearchUTF8|ngramSearchCaseInsensitiveUTF8|countSubstrings|countSubstringsCaseInsensitive|countSubstringsCaseInsensitiveUTF8|countMatches|countMatchesCaseInsensitive|replaceOne|replaceAll|replaceRegexpOne|replaceRegexpAll|regexpExtract|translate|translateUTF8|tokens|splitByChar|splitByString|splitByRegexp|splitByWhitespace|splitByNonAlpha|arrayStringConcat|alphaTokens|ngrams|tokens|base64Encode|base64Decode|tryBase64Decode|base64URLEncode|base64URLDecode|encodeXMLComponent|decodeXMLComponent|encodeURLComponent|decodeURLComponent|encodeURLFormComponent|decodeURLFormComponent|extractURLParameter|extractURLParameters|extractURLParameterNames|URLHierarchy|URLPathHierarchy|cutToFirstSignificantSubdomain|cutToFirstSignificantSubdomainCustom|cutToFirstSignificantSubdomainWithWWW|cutToFirstSignificantSubdomainCustomWithWWW|firstSignificantSubdomain|firstSignificantSubdomainCustom|port|domainWithoutWWW|domain|topLevelDomain|protocol|netloc|path|queryString|fragment|queryStringAndFragment|extractURLParameter|decodeURLComponent|cutQueryStringAndFragment|cutWWW|cutFragment|cutQueryString|isValidURL|domainWithoutWWWRFC|domainRFC)(?=\\s*\\()"
+        }
+      ]
+    },
+    "ch-date-functions": {
+      "patterns": [
+        {
+          "name": "support.function.date.sql.clickhouse",
+          "match": "(?i)\\b(now|now64|today|yesterday|timeZone|timeZoneOf|timeZoneOffset|toDate|toDate32|toDateTime|toDateTime32|toDateTime64|toDateTimeOrNull|toDateOrNull|toDate32OrNull|toDateTime64OrNull|toDateOrZero|toDate32OrZero|toDateTimeOrZero|toDateTime64OrZero|toUnixTimestamp|toUnixTimestamp64Milli|toUnixTimestamp64Micro|toUnixTimestamp64Nano|fromUnixTimestamp|fromUnixTimestamp64Milli|fromUnixTimestamp64Micro|fromUnixTimestamp64Nano|toStartOfYear|toStartOfISOYear|toStartOfQuarter|toStartOfMonth|toLastDayOfMonth|toMonday|toStartOfWeek|toLastDayOfWeek|toStartOfDay|toStartOfHour|toStartOfMinute|toStartOfSecond|toStartOfFiveMinutes|toStartOfTenMinutes|toStartOfFifteenMinutes|toStartOfInterval|toTime|toRelativeYearNum|toRelativeQuarterNum|toRelativeMonthNum|toRelativeWeekNum|toRelativeDayNum|toRelativeHourNum|toRelativeMinuteNum|toRelativeSecondNum|toISOYear|toISOWeek|toWeek|toYearWeek|age|dateDiff|date_diff|dateTrunc|date_trunc|dateAdd|date_add|dateAddInterval|dateSub|date_sub|dateSubInterval|addYears|addMonths|addWeeks|addDays|addHours|addMinutes|addSeconds|addQuarters|subtractYears|subtractMonths|subtractWeeks|subtractDays|subtractHours|subtractMinutes|subtractSeconds|subtractQuarters|formatDateTime|formatDateTimeInJodaSyntax|parseDateTimeBestEffort|parseDateTimeBestEffortUS|parseDateTimeBestEffortOrNull|parseDateTimeBestEffortUSOrNull|parseDateTimeBestEffortOrZero|parseDateTimeBestEffortUSOrZero|parseDateTime|parseDateTimeInJodaSyntax|parseDateTimeOrNull|parseDateTimeInJodaSyntaxOrNull|parseDateTimeOrZero|parseDateTimeInJodaSyntaxOrZero|toYear|toQuarter|toMonth|toDayOfYear|toDayOfMonth|toDayOfWeek|toHour|toMinute|toSecond|toMillisecond|toTimezone|assumeNotNull|toNullable|isNull|isNotNull|ifNull|nullIf|coalesce|year|quarter|month|dayofyear|day|dayofmonth|dayofweek|week|weekofyear|hour|minute|second)(?=\\s*\\()"
+        }
+      ]
+    },
+    "ch-math-functions": {
+      "patterns": [
+        {
+          "name": "support.function.math.sql.clickhouse",
+          "match": "(?i)\\b(abs|sign|negate|plus|minus|multiply|divide|intDiv|intDivOrZero|modulo|moduloOrZero|positiveModulo|floor|ceil|ceiling|trunc|truncate|round|roundBankers|roundToExp2|roundDuration|roundAge|roundDown|exp|log|ln|log2|log10|sqrt|cbrt|erf|erfc|lgamma|tgamma|sin|cos|tan|asin|acos|atan|atan2|pow|power|intExp2|intExp10|cosh|acosh|sinh|asinh|tanh|atanh|pi|e|hypot|log1p|exp2|exp10|factorial|greatestCommonDivisor|least|greatest|randCanonical|rand|rand32|rand64|randUniform|randNormal|randLogNormal|randExponential|randChiSquared|randStudentT|randFisherF|randBernoulli|randBinomial|randNegativeBinomial|randPoisson|generateUUIDv4|generateUUIDv7|serverUUID)(?=\\s*\\()"
+        }
+      ]
+    },
+    "ch-type-functions": {
+      "patterns": [
+        {
+          "name": "support.function.type.sql.clickhouse",
+          "match": "(?i)\\b(toInt8|toInt16|toInt32|toInt64|toInt128|toInt256|toUInt8|toUInt16|toUInt32|toUInt64|toUInt128|toUInt256|toFloat32|toFloat64|toDecimal32|toDecimal64|toDecimal128|toDecimal256|toDate|toDateTime|toString|toFixedString|toStringCutToZero|toType|toTypeName|toInt8OrNull|toInt16OrNull|toInt32OrNull|toInt64OrNull|toInt128OrNull|toInt256OrNull|toUInt8OrNull|toUInt16OrNull|toUInt32OrNull|toUInt64OrNull|toUInt128OrNull|toUInt256OrNull|toFloat32OrNull|toFloat64OrNull|toDecimal32OrNull|toDecimal64OrNull|toDecimal128OrNull|toDecimal256OrNull|toInt8OrZero|toInt16OrZero|toInt32OrZero|toInt64OrZero|toInt128OrZero|toInt256OrZero|toUInt8OrZero|toUInt16OrZero|toUInt32OrZero|toUInt64OrZero|toUInt128OrZero|toUInt256OrZero|toFloat32OrZero|toFloat64OrZero|toDecimal32OrZero|toDecimal64OrZero|toDecimal128OrZero|toDecimal256OrZero|toIPv4|toIPv6|IPv4NumToString|IPv6NumToString|IPv4StringToNum|IPv6StringToNum|IPv4ToIPv6|cutIPv6|toUUID|UUIDStringToNum|UUIDNumToString|accurateCast|accurateCastOrNull|accurateCastOrDefault|CAST|cast|reinterpretAsUInt8|reinterpretAsUInt16|reinterpretAsUInt32|reinterpretAsUInt64|reinterpretAsInt8|reinterpretAsInt16|reinterpretAsInt32|reinterpretAsInt64|reinterpretAsFloat32|reinterpretAsFloat64|reinterpretAsDate|reinterpretAsDateTime|reinterpretAsString|reinterpretAsFixedString|reinterpretAsUUID|reinterpret|bitCast|dynamicType|variantType|variantElement|variantArrayElement)(?=\\s*\\()"
+        }
+      ]
+    },
+    "ch-conditional-functions": {
+      "patterns": [
+        {
+          "name": "support.function.conditional.sql.clickhouse",
+          "match": "(?i)\\b(if|ifNull|nullIf|coalesce|isNull|isNotNull|isNaN|isInfinite|isFinite|assumeNotNull|toNullable|multiIf|caseWithExpression|caseWithoutExpression|greatest|least)(?=\\s*\\()"
+        }
+      ]
+    },
+    "ch-other-functions": {
+      "patterns": [
+        {
+          "name": "support.function.other.sql.clickhouse",
+          "match": "(?i)\\b(dictGet|dictGetOrDefault|dictGetOrNull|dictHas|dictGetChildren|dictGetDescendants|dictIsIn|transform|formatReadableSize|formatReadableDecimalSize|formatReadableQuantity|formatReadableTimeDelta|parseReadableSize|parseReadableDecimalSize|parseReadableSizeOrNull|parseReadableDecimalSizeOrNull|parseReadableSizeOrZero|parseReadableDecimalSizeOrZero|currentUser|currentProfiles|currentRoles|enabledProfiles|enabledRoles|defaultRoles|getServerPort|queryID|currentQueryID|hostName|getMacro|fqdn|basename|visibleWidth|toColumnTypeName|dumpColumnStructure|defaultValueOfArgumentType|defaultValueOfTypeName|blockSize|byteSize|materialize|ignore|sleep|sleepEachRow|isConstant|hasColumnInTable|bar|transform|formatRow|formatRowNoNewline|snowflakeToDateTime|dateTimeToSnowflake|snowflakeIDToDateTime|dateTimeToSnowflakeID|generateSnowflakeID|rowNumberInBlock|rowNumberInAllBlocks|neighbor|runningDifference|runningDifferenceStartingWithFirstValue|runningAccumulate|runningConcatArray|finalizeAggregation|runningAccumulate|initializeAggregation|joinGet|joinGetOrNull|catboostEvaluate|throwIf|identity|getSizeOfEnumType|blockNumber|rowNumberInBlock|firstRow|osUserName|buildId|addressToLine|addressToLineWithInlines|addressToSymbol|demangle|tid|logTrace|logDebug|logInfo|logWarning|logError|logFatal|countDigits|errorCodeToName|tcpPort|currentDatabase|currentUser|version|uptime|timezone|byteReverse|getTypeSerializationStreams|hasTokenCaseInsensitive|hasToken|hasTokens|indexHint|hasColumnInTable|getColumnDescription|parseTimeDelta|normalizedQueryHash|queryHash|ascii|space|soundex|ord|chr|bin|oct|hex|unhex|bitCount|bitLength|bitNot|bitAnd|bitOr|bitXor|bitShiftLeft|bitShiftRight|bitRotateLeft|bitRotateRight|bitHammingDistance|bitmapBuild|bitmapToArray|bitmapSubsetInRange|bitmapSubsetLimit|bitmapContains|bitmapHasAny|bitmapHasAll|bitmapCardinality|bitmapMin|bitmapMax|bitmapAnd|bitmapOr|bitmapXor|bitmapAndnot|bitmapAndCardinality|bitmapOrCardinality|bitmapXorCardinality|bitmapAndnotCardinality|subBitmap|bitmapRange|bitmapTransform|aggThrow|stochasticLinearRegression|stochasticLogisticRegression|evalMLMethod|geoDistance|pointInEllipses|pointInPolygon|geohashEncode|geohashDecode|geohashesInBox|h3ToGeo|h3ToGeoBoundary|h3IsValid|h3GetResolution|h3EdgeAngle|h3EdgeLengthM|h3EdgeLengthKm|h3HexAreaM2|h3HexAreaKm2|h3IsResClassIII|h3IsPentagon|h3GetFaces|h3CellAreaM2|h3CellAreaRads2|h3IndexesAreNeighbors|h3ToChildren|h3ToParent|h3ToCenterChild|h3ExactEdgeLengthM|h3ExactEdgeLengthKm|h3ExactEdgeLengthRads|h3NumHexagons|h3PointDistM|h3PointDistKm|h3PointDistRads|h3GetUnidirectionalEdge|h3UnidirectionalEdgeIsValid|h3GetOriginIndexFromUnidirectionalEdge|h3GetDestinationIndexFromUnidirectionalEdge|h3GetIndexesFromUnidirectionalEdge|h3GetUnidirectionalEdgesFromHexagon|h3GetUnidirectionalEdgeBoundary|s2ToGeo|geoToS2|s2GetNeighbors|s2CellsIntersect|s2CapContainsPoint)(?=\\s*\\()"
+        }
+      ]
+    },
+    "ch-keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.clickhouse",
+          "match": "(?i)\\b(PREWHERE|SAMPLE|FINAL|ASOF|ANTI|SEMI|GLOBAL|ARRAY\\s+JOIN|LEFT\\s+ARRAY\\s+JOIN|FORMAT|SETTINGS|LIMIT\\s+BY|WITH\\s+ROLLUP|WITH\\s+CUBE|WITH\\s+TOTALS|TIES|OFFSET|FETCH|FIRST|NEXT|ROWS|ROW|ONLY|OPTIMIZE|DEDUPLICATE|ATTACH|DETACH|SYSTEM|RELOAD|DICTIONARIES|DICTIONARY|MODELS|MODEL|DNS\\s+CACHE|MARKS|UNCOMPRESSED\\s+CACHE|COMPILED\\s+EXPRESSION\\s+CACHE|REPLICATION\\s+QUEUES|DISTRIBUTED\\s+SENDS|TTL\\s+MERGES|MOVES|FETCHES|SENDS|CLUSTER|REPLICATED|PARTITION|PART|PARTS|MUTATIONS|MUTATION|KILL|SYNC|ASYNC|WATCH|FLUSHES|FLUSH|LOGS|LOG|CRASH|SHUTDOWN|PLAN|PIPELINE|INDEXES|PROCESSLIST|REPLICATION|TABLES|DATABASES|COLUMNS|FUNCTIONS|EVENTS|STATUS|WARNINGS|CONTRIBUTORS|STORAGE\\s+POLICIES|QUOTA|QUOTAS|POLICIES|POLICY|ROLES|ROLE|USERS|USER|GRANTS|GRANT|REVOKE|PROFILES|PROFILE|ACCESS|ROW\\s+POLICIES|ROW\\s+POLICY|PRIVILEGES|PRIVILEGE|IDENTIFIED|BY\\s+PASSWORD|NOT\\s+IDENTIFIED|LDAP|KERBEROS|SSH_KEY|PLAINTEXT_PASSWORD|SHA256_PASSWORD|SHA256_HASH|BCRYPT_PASSWORD|BCRYPT_HASH|DOUBLE_SHA1_PASSWORD|DOUBLE_SHA1_HASH|NO_PASSWORD|HOST_REGEXP|LOCAL|EXCEPT|APPEND_TO|MODIFY|RESET|INHERIT|TTL|MOVE\\s+TO|VOLUME|DISK|DELETE|RECOMPRESS|TO\\s+DISK|TO\\s+VOLUME|MAX_DATA_PART_SIZE|EXPRESSION|CODEC|DELTA|GORILLA|LZ4|ZSTD|LZ4HC|NONE|DOUBLEDELTA|FPC|T64|DEDUPLICATION|BLOCK|CLEANUP|REPLICATED|ZOOKEEPER|KEEPER|REPLACE|EXCHANGE|RENAME|TRUNCATE|CHECK|DESCRIBE|DESC|SHOW|USE|EXPLAIN|AST|SYNTAX|QUERY|ANALYZE|HEADER|TABLES|DATABASES|CLUSTERS|CLUSTER|FUNCTIONS|DICTIONARIES|SETTINGS|ENGINES|TABLE\\s+ENGINES|PROCESSLIST|GRANTS|POLICIES|QUOTAS|ROLES|USERS|STORAGE\\s+POLICIES|WARNING|WARNINGS|PRIVILEGES|ACCESS\\s+ENTITIES|MERGES|MUTATIONS|PARTS|PARTITIONS|REPLICAS|REPLICA|REPLICATED|SHARDS|SHARD|ROWS|COLUMNS|FIELDS|TYPES|FUNCTIONS|EVENTS|METRICS|ASYNC_METRICS|ASYNCHRONOUS_METRICS|PROCESSES|PROCESS|LOGS|QUERIES|QUERY_LOG|LOCKS|LOCK|TABLES|VIEWS|VIEW|MATERIALIZED|LIVE|REFRESHABLE|WINDOW|TEMPORARY|EXTERNAL|DICTIONARY|FUNCTION|AGGREGATE|LAMBDA|ALIAS)\\b"
+        },
+        {
+          "name": "keyword.control.clickhouse.create",
+          "match": "(?i)\\b(CREATE|ALTER|DROP|RENAME|TRUNCATE|OPTIMIZE|ATTACH|DETACH|EXCHANGE|REPLACE|MODIFY|ADD|COMMENT|CONSTRAINT|INDEX|PROJECTION|COLUMN|TABLE|VIEW|DATABASE|DICTIONARY|FUNCTION|USER|ROLE|POLICY|QUOTA|PROFILE|STORAGE|SETTINGS|PARTITION|TTL|CODEC|ORDER|SAMPLE|PRIMARY|KEY|ENGINE|POPULATION|DEFINER|SQL\\s+SECURITY|INVOKER)\\b"
+        },
+        {
+          "name": "keyword.control.clickhouse.access",
+          "match": "(?i)\\b(GRANT|REVOKE|ON|TO|FROM|WITH|GRANT\\s+OPTION|ADMIN\\s+OPTION|IF\\s+EXISTS|IF\\s+NOT\\s+EXISTS|OR\\s+REPLACE|REPLACE|TEMPORARY|EXTERNAL)\\b"
+        }
+      ]
+    },
+    "sql-keywords": {
+      "patterns": [
+        {
+          "name": "keyword.other.sql",
+          "match": "(?i)\\b(SELECT|FROM|WHERE|GROUP\\s+BY|ORDER\\s+BY|HAVING|LIMIT|OFFSET|UNION|UNION\\s+ALL|UNION\\s+DISTINCT|INTERSECT|EXCEPT|EXCEPT\\s+ALL|DISTINCT|ALL|TOP|AS|ON|USING|JOIN|INNER\\s+JOIN|LEFT\\s+JOIN|RIGHT\\s+JOIN|FULL\\s+JOIN|FULL\\s+OUTER\\s+JOIN|LEFT\\s+OUTER\\s+JOIN|RIGHT\\s+OUTER\\s+JOIN|CROSS\\s+JOIN|NATURAL\\s+JOIN|ARRAY\\s+JOIN|LEFT\\s+ARRAY\\s+JOIN|ASOF\\s+JOIN|ASOF\\s+LEFT\\s+JOIN|INSERT|INTO|VALUES|UPDATE|SET|DELETE|WITH|RECURSIVE|OVER|PARTITION\\s+BY|ROWS\\s+BETWEEN|RANGE\\s+BETWEEN|UNBOUNDED|PRECEDING|FOLLOWING|CURRENT\\s+ROW|WINDOW|NAMED\\s+COLLECTION|ASC|DESC|NULLS\\s+FIRST|NULLS\\s+LAST|CASE|WHEN|THEN|ELSE|END|IF|IN|NOT|AND|OR|EXISTS|BETWEEN|LIKE|ILIKE|SIMILAR\\s+TO|ESCAPE|CAST|CONVERT|ARRAY|ROW|TABLE|LATERAL|TABLESAMPLE|SYSTEM|ROWS|ONLY|TIES|FETCH|FIRST|NEXT|WITHIN\\s+GROUP|FILTER|RESPECT\\s+NULLS|IGNORE\\s+NULLS|FROM\\s+FIRST|FROM\\s+LAST)\\b"
+        }
+      ]
+    },
+    "identifiers": {
+      "patterns": [
+        {
+          "name": "entity.name.function.sql.clickhouse",
+          "match": "(?i)\\b[a-z_][a-z0-9_]*(?=\\s*\\()"
+        },
+        {
+          "name": "variable.other.table.sql.clickhouse",
+          "match": "(?i)\\b([a-z_][a-z0-9_]*)\\.[a-z_][a-z0-9_]*\\b"
+        }
+      ]
+    },
+    "punctuation": {
+      "patterns": [
+        {
+          "name": "punctuation.separator.sql.clickhouse",
+          "match": ","
+        },
+        {
+          "name": "punctuation.terminator.sql.clickhouse",
+          "match": ";"
+        },
+        {
+          "name": "punctuation.section.brackets.begin.sql.clickhouse",
+          "match": "\\("
+        },
+        {
+          "name": "punctuation.section.brackets.end.sql.clickhouse",
+          "match": "\\)"
+        },
+        {
+          "name": "punctuation.accessor.dot.sql.clickhouse",
+          "match": "\\."
+        }
+      ]
+    }
+  }
+}
