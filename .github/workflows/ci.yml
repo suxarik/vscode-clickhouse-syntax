@@ -11,18 +11,14 @@ jobs:
     name: Build & Package
     runs-on: ubuntu-latest
 
-    strategy:
-      matrix:
-        node-version: [20.x, 22.x]
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Node.js ${{ matrix.node-version }}
+      - name: Set up Node.js 20
         uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node-version }}
+          node-version: '20'
           cache: npm
 
       - name: Install dependencies
@@ -37,6 +33,6 @@ jobs:
       - name: Upload VSIX artifact
         uses: actions/upload-artifact@v4
         with:
-          name: clickhouse-syntax-${{ matrix.node-version }}.vsix
+          name: clickhouse-syntax.vsix
           path: "*.vsix"
           retention-days: 7

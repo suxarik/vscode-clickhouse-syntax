@@ -32,7 +32,7 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set up Node.js
+      - name: Set up Node.js 20
         uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -46,17 +46,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # ── Tag-triggered publish ──────────────────────────────────────────────
-      - name: Extract version from tag
+      # ── Tag-triggered: sync package.json version to tag ───────────────────
+      - name: Sync package.json version to tag
         if: startsWith(github.ref, 'refs/tags/v')
-        id: tag_version
-        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        run: |
+          TAG_VER="${GITHUB_REF_NAME#v}"
+          npm version "$TAG_VER" --no-git-tag-version
 
-      - name: Bump package.json version to match tag
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: npm version ${{ steps.tag_version.outputs.VERSION }} --no-git-tag-version
-
-      # ── Manual / workflow_dispatch publish ────────────────────────────────
+      # ── Manual dispatch: bump version, commit, push tag ───────────────────
       - name: Bump version (manual trigger)
         if: github.event_name == 'workflow_dispatch'
         run: |
@@ -64,7 +61,7 @@ jobs:
           NEW_VER=$(node -p "require('./package.json').version")
           echo "NEW_VERSION=$NEW_VER" >> "$GITHUB_ENV"
 
-      - name: Commit & tag bumped version (manual trigger)
+      - name: Commit & push bumped version + tag (manual trigger)
         if: github.event_name == 'workflow_dispatch'
         run: |
           git add package.json package-lock.json
@@ -72,7 +69,7 @@ jobs:
           git tag "v${{ env.NEW_VERSION }}"
           git push origin HEAD:${{ github.ref_name }} --follow-tags
 
-      # ── Shared steps ──────────────────────────────────────────────────────
+      # ── Shared build steps ────────────────────────────────────────────────
       - name: Compile TypeScript
         run: npm run compile
 
@@ -84,29 +81,37 @@ jobs:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
         run: npx @vscode/vsce publish --no-dependencies -p "$VSCE_PAT"
 
-      - name: Upload VSIX as release asset
-        uses: actions/upload-artifact@v4
-        with:
-          name: clickhouse-syntax.vsix
-          path: "*.vsix"
-          retention-days: 90
-
-      # ── Create GitHub Release ──────────────────────────────────────────────
-      - name: Get version for release notes
+      # ── Extract changelog for this version ────────────────────────────────
+      - name: Get release version
         id: get_ver
         run: echo "VERSION=$(node -p \"require('./package.json').version\")" >> "$GITHUB_OUTPUT"
 
+      - name: Extract changelog section
+        id: changelog
+        run: |
+          VERSION="${{ steps.get_ver.outputs.VERSION }}"
+          # Extract the block between "## [VERSION]" and the next "## [" heading
+          NOTES=$(awk "/^## \[$VERSION\]/{found=1; next} found && /^## \[/{exit} found{print}" CHANGELOG.md)
+          # Store multi-line output safely
+          {
+            echo "NOTES<<EOF"
+            echo "$NOTES"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      # ── Create GitHub Release ─────────────────────────────────────────────
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.get_ver.outputs.VERSION }}
           name: "ClickHouse SQL Syntax v${{ steps.get_ver.outputs.VERSION }}"
           body: |
-            ## ClickHouse SQL Syntax v${{ steps.get_ver.outputs.VERSION }}
+            ${{ steps.changelog.outputs.NOTES }}
 
-            Published to the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=SuXarikisme.clickhouse-syntax).
+            ---
+            📦 Published to the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=SuXarikisme.clickhouse-syntax)
 
-            ### Install
+            **Install via CLI:**
             ```bash
             code --install-extension SuXarikisme.clickhouse-syntax
             ```
@@ -114,8 +119,6 @@ jobs:
             ```bash
             code --install-extension clickhouse-syntax-${{ steps.get_ver.outputs.VERSION }}.vsix
             ```
-
-            See [CHANGELOG.md](https://github.com/suxarik/vscode-clickhouse-syntax/blob/main/CHANGELOG.md) for details.
           files: "*.vsix"
           draft: false
           prerelease: false
