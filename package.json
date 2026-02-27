@@ -2,7 +2,7 @@
   "name": "clickhouse-syntax",
   "displayName": "ClickHouse SQL Syntax",
   "description": "Syntax highlighting, auto-detection, formatting and 400+ completions for ClickHouse SQL — MergeTree engines, ClickHouse-exclusive types, functions and clauses.",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "publisher": "SuXarikisme",
   "icon": "images/clickhouse.png",
   "engines": {

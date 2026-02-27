@@ -9,6 +9,8 @@
     { "include": "#numbers" },
     { "include": "#constants" },
     { "include": "#operators" },
+    { "include": "#identifiers" },
+    { "include": "#punctuation" },
     { "include": "#ch-data-types" },
     { "include": "#ch-engines" },
     { "include": "#ch-aggregate-functions" },
@@ -20,16 +22,18 @@
     { "include": "#ch-conditional-functions" },
     { "include": "#ch-other-functions" },
     { "include": "#ch-keywords" },
-    { "include": "#sql-keywords" },
-    { "include": "#identifiers" },
-    { "include": "#punctuation" }
+    { "include": "#sql-keywords" }
   ],
   "repository": {
     "comments": {
       "patterns": [
         {
           "name": "comment.line.double-dash.sql.clickhouse",
-          "match": "--.*$"
+          "match": "--(.*?)$",
+          "captures": {
+            "0": { "name": "comment.line.double-dash.sql.clickhouse" },
+            "1": { "name": "comment.content.line.sql.clickhouse" }
+          }
         },
         {
           "name": "comment.block.sql.clickhouse",
@@ -40,7 +44,8 @@
           },
           "endCaptures": {
             "0": { "name": "punctuation.definition.comment.end.sql.clickhouse" }
-          }
+          },
+          "patterns": []
         }
       ]
     },

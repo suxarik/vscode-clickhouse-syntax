@@ -2,6 +2,12 @@
 
 All notable changes to the ClickHouse SQL Syntax extension will be documented in this file.
 
+## [1.1.1] - 2026-02-27
+
+### Fixed
+- Fixed an issue where line comments were incorrectly gluing with the next code line
+- Fixed keyword highlighting within comments
+
 ## [1.1.0] - 2026-02-27
 
 ### Added

@@ -294,8 +294,9 @@ function formatSQL(text, keywordCase, indentSize) {
         .replace(/'(?:[^'\\]|\\.)*'/g, protect) // 'single-quoted strings'
         .replace(/`[^`]*`/g, protect) // `backtick identifiers`
         .replace(/"[^"]*"/g, protect); // "double-quoted identifiers"
-    // ── Step 2: Normalize whitespace ────────────────────────────────────────
-    sql = sql.replace(/\s+/g, ' ').trim();
+    // ── Step 2: Normalize whitespace (preserve newlines) ─────────────────────
+    // Replace multiple spaces/tabs with single space, but preserve newlines
+    sql = sql.replace(/[ \t]+/g, ' ').replace(/\n\s*\n/g, '\n\n').trim();
     // ── Step 3: Apply keyword casing ────────────────────────────────────────
     if (keywordCase !== 'preserve') {
         const toCase = (kw) => keywordCase === 'upper' ? kw.toUpperCase() : kw.toLowerCase();
