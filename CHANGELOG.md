@@ -2,6 +2,21 @@
 
 All notable changes to the ClickHouse SQL Syntax extension will be documented in this file.
 
+## [1.1.0] - 2026-02-27
+
+### Added
+- **Structural SQL formatter** — rewrote the formatting engine from scratch:
+  - Each top-level clause (`SELECT`, `FROM`, `WHERE`, `PREWHERE`, `GROUP BY`, `ORDER BY`, `HAVING`, `LIMIT`, `SETTINGS`, `FORMAT`, all `JOIN` variants, `UNION ALL`, etc.) starts on its own line
+  - `SELECT` / `GROUP BY` / `ORDER BY` column lists are expanded one item per indented line
+  - `WHERE` / `PREWHERE` / `HAVING` / `JOIN ON` conditions expand `AND` / `OR` to their own indented lines
+  - String literals, backtick/double-quoted identifiers, block comments, and line comments are protected from transformation
+  - Multiple statements separated by `;` are formatted independently with a blank line between them
+  - Nested subqueries inside parentheses are preserved (depth-tracked so inner keywords are not expanded)
+- **`ClickHouse: Format Document` command** — available in:
+  - **F1 / Command Palette** (`ClickHouse: Format Document`)
+  - **Right-click context menu** on `.chsql`, `.ch.sql`, and `.sql` files
+  - **Format Document** (`⇧⌥F`) keyboard shortcut via the VS Code formatting API
+
 ## [1.0.0] - 2024-02-26
 
 ### Added

@@ -2,7 +2,7 @@
   "name": "clickhouse-syntax",
   "displayName": "ClickHouse SQL Syntax",
   "description": "Syntax highlighting, auto-detection, formatting and 400+ completions for ClickHouse SQL — MergeTree engines, ClickHouse-exclusive types, functions and clauses.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "publisher": "SuXarikisme",
   "icon": "images/clickhouse.png",
   "engines": {
@@ -35,7 +35,9 @@
   "activationEvents": [
     "onLanguage:sql",
     "onLanguage:plaintext",
-    "onLanguage:clickhouse"
+    "onLanguage:clickhouse",
+    "onCommand:clickhouse.formatDocument",
+    "onCommand:clickhouse.detectLanguage"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -62,10 +64,31 @@
     "commands": [
       {
         "command": "clickhouse.detectLanguage",
-        "title": "ClickHouse: Detect & Set ClickHouse SQL Language",
+        "title": "Detect & Set ClickHouse SQL Language",
         "category": "ClickHouse"
+      },
+      {
+        "command": "clickhouse.formatDocument",
+        "title": "Format ClickHouse SQL",
+        "category": "ClickHouse",
+        "icon": "$(symbol-keyword)"
       }
     ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "clickhouse.formatDocument",
+          "when": "editorTextFocus && (editorLangId == 'clickhouse' || editorLangId == 'sql' || editorLangId == 'plaintext')",
+          "group": "1_modification@10"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "clickhouse.formatDocument",
+          "when": "editorIsOpen"
+        }
+      ]
+    },
     "grammars": [
       {
         "language": "clickhouse",

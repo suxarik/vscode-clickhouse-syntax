@@ -53,10 +53,49 @@ IntelliSense completions for:
 - Available for both `.chsql` and `.sql` files
 
 ### 🔧 SQL Formatter
-Format ClickHouse SQL with configurable options:
-- **Keyword case**: UPPER, lower, or preserve original
-- **Indent size**: Configurable number of spaces
-- Works with Format Document (`⇧⌥F`) and Format Selection
+
+The formatter completely restructures your ClickHouse SQL for maximum readability:
+
+- **Each SQL clause on its own line** — `SELECT`, `FROM`, `WHERE`, `PREWHERE`, `GROUP BY`, `ORDER BY`, `HAVING`, `LIMIT`, `SETTINGS`, `FORMAT`, all `JOIN` variants, `UNION ALL`, `INTERSECT`, `EXCEPT`
+- **Column lists expanded** — every column in `SELECT`, `GROUP BY`, `ORDER BY` gets its own indented line
+- **Conditions expanded** — `AND` / `OR` in `WHERE`, `PREWHERE`, `HAVING`, and `JOIN ON` each start a new indented line
+- **Subqueries stay nested** — expressions inside parentheses are correctly skipped by the clause-splitter
+- **Literals protected** — single-quoted strings, backtick/double-quoted identifiers, `--` comments, and `/* */` blocks are never altered
+- **Multi-statement support** — multiple statements separated by `;` are formatted independently with a blank line between them
+- **Three ways to invoke**:
+  - **Right-click → ClickHouse: Format Document** (context menu)
+  - **F1 → ClickHouse: Format Document** (command palette)
+  - **`⇧⌥F`** — VS Code built-in Format Document shortcut
+
+**Before:**
+```sql
+select user_id,count() as cnt,sum(revenue) as rev from events where event_date>=today()-30 and status='active' group by user_id order by cnt desc limit 100
+```
+
+**After:**
+```sql
+SELECT
+    user_id,
+    count() AS cnt,
+    sum(revenue) AS rev
+FROM events
+WHERE
+    event_date >= today() - 30
+    AND status = 'active'
+GROUP BY
+    user_id
+ORDER BY
+    cnt DESC
+LIMIT 100
+```
+
+**Configurable options:**
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `clickhouse.format.enabled` | `true` | Enable/disable formatting |
+| `clickhouse.format.keywordCase` | `upper` | `upper`, `lower`, or `preserve` |
+| `clickhouse.format.indentSize` | `4` | Spaces per indent level |
 
 ### 💉 SQL Injection
 ClickHouse-specific syntax is also highlighted inside standard `.sql` files via grammar injection, so you get ClickHouse type and function highlighting without changing the file language.

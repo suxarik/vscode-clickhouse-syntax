@@ -12,4 +12,7 @@ tsconfig.json
 PUBLISHING.md
 CHANGELOG.md
 example.sql
+*.sql
+**/*.chsql
+**/*.ch.sql
 images/icon.png

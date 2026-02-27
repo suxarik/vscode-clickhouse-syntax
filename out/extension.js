@@ -144,6 +144,31 @@ function activate(context) {
             vscode.window.showWarningMessage('No ClickHouse-specific syntax detected in this file.');
         }
     }));
+    // Register explicit format command — shows in F1 palette and editor context menu.
+    // Formats directly (does not delegate to editor.action.formatDocument) so it works
+    // regardless of whether VS Code has already resolved a formatter for the language.
+    context.subscriptions.push(vscode.commands.registerCommand('clickhouse.formatDocument', async () => {
+        const editor = vscode.window.activeTextEditor;
+        if (!editor) {
+            vscode.window.showWarningMessage('ClickHouse: No active editor.');
+            return;
+        }
+        const doc = editor.document;
+        const config = vscode.workspace.getConfiguration('clickhouse');
+        const keywordCase = config.get('format.keywordCase', 'upper');
+        const indentSize = config.get('format.indentSize', 4);
+        const original = doc.getText();
+        const formatted = formatSQL(original, keywordCase, indentSize);
+        if (formatted === original) {
+            vscode.window.showInformationMessage('ClickHouse: Document is already formatted.');
+            return;
+        }
+        const fullRange = new vscode.Range(doc.positionAt(0), doc.positionAt(original.length));
+        await editor.edit(editBuilder => {
+            editBuilder.replace(fullRange, formatted);
+        });
+        vscode.window.showInformationMessage('ClickHouse: Document formatted.');
+    }));
     // Register formatter for clickhouse language
     const formatterProvider = vscode.languages.registerDocumentFormattingEditProvider([{ language: 'clickhouse' }, { language: 'sql' }], {
         provideDocumentFormattingEdits(document) {
@@ -238,71 +263,256 @@ function activate(context) {
     context.subscriptions.push(formatterProvider, rangeFormatterProvider, hoverProvider, completionProvider);
 }
 /**
- * Format SQL text with proper keyword casing and indentation
+ * Format SQL text with proper keyword casing and structural indentation.
+ *
+ * Pipeline:
+ *  1. Protect string literals and comments with placeholders.
+ *  2. Collapse all whitespace to a single space (normalize).
+ *  3. Apply keyword casing (upper / lower / preserve).
+ *  4. Structural pass — character-by-character with paren-depth tracking:
+ *       • Top-level clause keywords → newline before, body on next indented line.
+ *       • SELECT / GROUP BY / ORDER BY column lists → one item per line.
+ *       • WHERE / PREWHERE / HAVING / JOIN ON conditions → AND / OR on new lines.
+ *       • Semicolons separate statements with a blank line.
+ *  5. Tidy trailing spaces and excess blank lines.
+ *  6. Restore protected literals.
  */
 function formatSQL(text, keywordCase, indentSize) {
-    const indent = ' '.repeat(indentSize);
-    const lines = text.split('\n');
-    const formattedLines = [];
-    const MAIN_KEYWORDS = [
-        'SELECT', 'FROM', 'WHERE', 'JOIN', 'INNER JOIN', 'LEFT JOIN', 'RIGHT JOIN',
-        'FULL JOIN', 'CROSS JOIN', 'ARRAY JOIN', 'LEFT ARRAY JOIN',
-        'PREWHERE', 'GROUP BY', 'HAVING', 'ORDER BY', 'LIMIT', 'LIMIT BY',
-        'OFFSET', 'UNION ALL', 'UNION', 'INTERSECT', 'EXCEPT',
-        'WITH', 'SETTINGS', 'FORMAT', 'SAMPLE', 'WINDOW'
+    if (!text || !text.trim()) {
+        return text;
+    }
+    const sp = ' '.repeat(indentSize);
+    // ── Step 1: Protect literals and comments ───────────────────────────────
+    const holes = [];
+    const protect = (s) => {
+        holes.push(s);
+        return `\x01${holes.length - 1}\x01`;
+    };
+    let sql = text
+        .replace(/\/\*[\s\S]*?\*\//g, protect) // /* block comments */
+        .replace(/--[^\n]*/g, protect) // -- line comments
+        .replace(/'(?:[^'\\]|\\.)*'/g, protect) // 'single-quoted strings'
+        .replace(/`[^`]*`/g, protect) // `backtick identifiers`
+        .replace(/"[^"]*"/g, protect); // "double-quoted identifiers"
+    // ── Step 2: Normalize whitespace ────────────────────────────────────────
+    sql = sql.replace(/\s+/g, ' ').trim();
+    // ── Step 3: Apply keyword casing ────────────────────────────────────────
+    if (keywordCase !== 'preserve') {
+        const toCase = (kw) => keywordCase === 'upper' ? kw.toUpperCase() : kw.toLowerCase();
+        // Multi-word patterns must come before their single-word sub-patterns.
+        const KWS = [
+            'LEFT ARRAY JOIN', 'ARRAY JOIN',
+            'FULL OUTER JOIN', 'INNER JOIN', 'LEFT JOIN', 'RIGHT JOIN', 'FULL JOIN', 'CROSS JOIN',
+            'LEFT SEMI JOIN', 'RIGHT SEMI JOIN', 'LEFT ANTI JOIN', 'RIGHT ANTI JOIN',
+            'ASOF JOIN', 'SEMI JOIN', 'ANTI JOIN',
+            'GLOBAL NOT IN', 'GLOBAL IN',
+            'WITH ROLLUP', 'WITH CUBE', 'WITH TOTALS', 'WITH FILL',
+            'IS NOT NULL', 'IS NULL', 'NOT IN', 'NOT LIKE', 'NOT ILIKE', 'NOT BETWEEN', 'NOT EXISTS',
+            'GROUP BY', 'ORDER BY', 'PARTITION BY', 'SAMPLE BY', 'PRIMARY KEY', 'LIMIT BY',
+            'UNION ALL', 'INTERSECT', 'EXCEPT', 'UNION',
+            'INSERT INTO', 'CREATE MATERIALIZED VIEW', 'CREATE TABLE', 'CREATE VIEW',
+            'ALTER TABLE', 'DROP TABLE', 'TRUNCATE TABLE', 'ON CLUSTER',
+            'SELECT', 'DISTINCT', 'FROM', 'WHERE', 'PREWHERE', 'HAVING', 'LIMIT', 'OFFSET', 'WITH',
+            'JOIN', 'ON', 'USING', 'AS',
+            'AND', 'OR', 'NOT', 'IN', 'EXISTS', 'BETWEEN', 'LIKE', 'ILIKE',
+            'CASE', 'WHEN', 'THEN', 'ELSE', 'END', 'IF',
+            'NULL', 'TRUE', 'FALSE', 'IS', 'ASC', 'DESC', 'NULLS', 'FIRST', 'LAST',
+            'FINAL', 'SAMPLE', 'SETTINGS', 'FORMAT', 'WINDOW', 'OVER',
+            'ROWS', 'RANGE', 'UNBOUNDED', 'PRECEDING', 'FOLLOWING', 'CURRENT', 'ROW',
+            'INSERT', 'INTO', 'UPDATE', 'SET', 'DELETE', 'VALUES',
+            'CREATE', 'ALTER', 'DROP', 'RENAME', 'TRUNCATE', 'OPTIMIZE', 'ATTACH', 'DETACH',
+            'TABLE', 'VIEW', 'DATABASE', 'DICTIONARY', 'FUNCTION', 'MATERIALIZED',
+            'ENGINE', 'TTL', 'CODEC', 'INTERVAL', 'ALL', 'ANY', 'SOME', 'GLOBAL', 'ANTI', 'SEMI', 'ASOF',
+            'SHOW', 'DESCRIBE', 'EXPLAIN', 'USE', 'KILL', 'SYSTEM',
+        ];
+        for (const kw of KWS) {
+            const esc = kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
+            sql = sql.replace(new RegExp(`\\b${esc}\\b`, 'gi'), toCase(kw));
+        }
+    }
+    // ── Step 4: Structural formatting ───────────────────────────────────────
+    // All entries are UPPERCASE; matching is case-insensitive via .toUpperCase().
+    // Longer keywords must come before shorter ones so they match first.
+    const BREAK_BEFORE_D0 = [
+        'LEFT ARRAY JOIN', 'ARRAY JOIN',
+        'FULL OUTER JOIN', 'INNER JOIN', 'LEFT JOIN', 'RIGHT JOIN', 'FULL JOIN', 'CROSS JOIN',
+        'LEFT SEMI JOIN', 'RIGHT SEMI JOIN', 'LEFT ANTI JOIN', 'RIGHT ANTI JOIN',
+        'ASOF JOIN', 'SEMI JOIN', 'ANTI JOIN', 'JOIN',
+        'UNION ALL', 'UNION', 'INTERSECT', 'EXCEPT',
+        'SELECT', 'FROM', 'PREWHERE', 'WHERE', 'HAVING', 'WINDOW',
+        'GROUP BY', 'ORDER BY', 'LIMIT BY', 'LIMIT', 'OFFSET',
+        'SETTINGS', 'FORMAT',
     ];
-    const CLAUSE_KEYWORDS = new Set(MAIN_KEYWORDS.map(k => k.toUpperCase()));
-    for (let line of lines) {
-        const trimmed = line.trim();
-        if (trimmed === '' || trimmed.startsWith('--') || trimmed.startsWith('/*') || trimmed.startsWith('*')) {
-            formattedLines.push(line);
+    // Clauses whose body starts on the NEXT indented line (rather than the same line).
+    const BODY_NEXT_LINE = new Set([
+        'SELECT', 'WHERE', 'PREWHERE', 'HAVING', 'GROUP BY', 'ORDER BY', 'LIMIT BY',
+    ]);
+    /** True iff `kw` (UPPERCASE) starts at position `pos` in `sql` with word boundaries. */
+    const peekWord = (pos, kw) => {
+        if (pos > 0 && /\w/.test(sql[pos - 1])) {
+            return false;
+        }
+        if (!sql.slice(pos).toUpperCase().startsWith(kw)) {
+            return false;
+        }
+        const end = pos + kw.length;
+        if (end < sql.length && /\w/.test(sql[end])) {
+            return false;
+        }
+        return true;
+    };
+    /** Return the first keyword (from `kws`) found at `pos`, longest wins. */
+    const matchFirst = (pos, kws) => {
+        const sorted = [...kws].sort((a, b) => b.length - a.length);
+        for (const kw of sorted) {
+            if (peekWord(pos, kw.toUpperCase())) {
+                return kw;
+            }
+        }
+        return null;
+    };
+    let out = '';
+    let depth = 0;
+    let ctx = 'none';
+    let i = 0;
+    const n = sql.length;
+    while (i < n) {
+        const ch = sql[i];
+        // ── Opening parenthesis ─────────────────────────────────────────
+        if (ch === '(') {
+            out += '(';
+            depth++;
+            i++;
             continue;
         }
-        let processed = trimmed;
-        // Apply keyword casing
-        if (keywordCase !== 'preserve') {
-            const keywords = [
-                'SELECT', 'DISTINCT', 'FROM', 'WHERE', 'AND', 'OR', 'NOT', 'IN', 'EXISTS',
-                'JOIN', 'INNER', 'LEFT', 'RIGHT', 'FULL', 'OUTER', 'CROSS', 'NATURAL',
-                'ON', 'USING', 'AS', 'GROUP BY', 'ORDER BY', 'HAVING', 'LIMIT', 'OFFSET',
-                'UNION', 'ALL', 'INTERSECT', 'EXCEPT', 'WITH', 'RECURSIVE',
-                'INSERT', 'INTO', 'VALUES', 'UPDATE', 'SET', 'DELETE',
-                'CREATE', 'ALTER', 'DROP', 'RENAME', 'TRUNCATE', 'OPTIMIZE',
-                'TABLE', 'VIEW', 'DATABASE', 'DICTIONARY', 'FUNCTION',
-                'ENGINE', 'PARTITION', 'ORDER', 'PRIMARY', 'KEY', 'SAMPLE', 'BY',
-                'SETTINGS', 'FORMAT', 'PREWHERE', 'FINAL', 'ARRAY',
-                'CASE', 'WHEN', 'THEN', 'ELSE', 'END', 'IF',
-                'BETWEEN', 'LIKE', 'ILIKE', 'IS', 'NULL', 'TRUE', 'FALSE',
-                'ASC', 'DESC', 'NULLS', 'FIRST', 'LAST',
-                'OVER', 'WINDOW', 'ROWS', 'RANGE', 'UNBOUNDED', 'PRECEDING', 'FOLLOWING', 'CURRENT', 'ROW',
-                'TTL', 'CODEC', 'MOD', 'DIV', 'GLOBAL', 'ANTI', 'SEMI', 'ASOF',
-                'WITH ROLLUP', 'WITH CUBE', 'WITH TOTALS',
-                'SHOW', 'DESCRIBE', 'EXPLAIN', 'USE', 'ATTACH', 'DETACH',
-                'SYSTEM', 'KILL', 'RELOAD', 'FLUSH', 'SYNC', 'ASYNC'
-            ];
-            for (const kw of keywords) {
-                const escaped = kw.replace(/\s+/g, '\\s+').replace(/[.*+?^${}()|[\]\\]/g, (c) => `\\${c}`);
-                const regex = new RegExp(`\\b${escaped}\\b`, 'gi');
-                if (keywordCase === 'upper') {
-                    processed = processed.replace(regex, kw.toUpperCase());
+        // ── Closing parenthesis ─────────────────────────────────────────
+        if (ch === ')') {
+            out += ')';
+            if (depth > 0) {
+                depth--;
+            }
+            i++;
+            continue;
+        }
+        // ── Semicolon — statement separator ────────────────────────────
+        if (ch === ';') {
+            out = out.trimEnd() + ';\n';
+            i++;
+            ctx = 'none';
+            depth = 0;
+            while (i < n && sql[i] === ' ') {
+                i++;
+            }
+            if (i < n) {
+                out += '\n';
+            }
+            continue;
+        }
+        // ── Comma in list contexts at depth 0 → expand to new line ─────
+        if (ch === ',') {
+            if (depth === 0 && (ctx === 'select_list' || ctx === 'list')) {
+                out = out.trimEnd() + ',\n' + sp;
+                i++;
+                while (i < n && sql[i] === ' ') {
+                    i++;
                 }
-                else if (keywordCase === 'lower') {
-                    processed = processed.replace(regex, kw.toLowerCase());
+                continue;
+            }
+            out += ',';
+            i++;
+            continue;
+        }
+        // ── Spaces ──────────────────────────────────────────────────────
+        if (ch === ' ') {
+            out += ' ';
+            i++;
+            continue;
+        }
+        // ── Keyword detection at paren depth 0 ──────────────────────────
+        if (depth === 0 && /[A-Za-z]/.test(ch)) {
+            // 1) Top-level clause → newline before
+            const kw = matchFirst(i, BREAK_BEFORE_D0);
+            if (kw) {
+                const kwUpper = kw.toUpperCase();
+                const kwInSql = sql.slice(i, i + kw.length); // already cased (Step 3)
+                if (kwUpper === 'SELECT') {
+                    ctx = 'select_list';
+                }
+                else if (['WHERE', 'PREWHERE', 'HAVING'].includes(kwUpper)) {
+                    ctx = 'condition';
+                }
+                else if (['GROUP BY', 'ORDER BY', 'LIMIT BY'].includes(kwUpper)) {
+                    ctx = 'list';
+                }
+                else {
+                    ctx = 'none';
+                }
+                if (out.trimEnd().length > 0) {
+                    out = out.trimEnd() + '\n';
+                }
+                out += kwInSql;
+                i += kw.length;
+                if (BODY_NEXT_LINE.has(kwUpper)) {
+                    // Body goes on the next indented line
+                    if (i < n && sql[i] === ' ') {
+                        i++;
+                    }
+                    out += '\n' + sp;
+                }
+                else {
+                    // Body follows on the same line after a space
+                    out += ' ';
+                }
+                continue;
+            }
+            // 2) ON after a JOIN (depth 0), but not ON CLUSTER
+            if (peekWord(i, 'ON') && !peekWord(i, 'ON CLUSTER')) {
+                ctx = 'condition';
+                out = out.trimEnd() + '\n' + sp;
+                out += sql.slice(i, i + 2); // 'ON' or 'on'
+                i += 2;
+                if (i < n && sql[i] === ' ') {
+                    i++;
+                }
+                out += '\n' + sp + sp;
+                continue;
+            }
+            // 3) AND / OR inside condition context at depth 0
+            if (ctx === 'condition') {
+                if (peekWord(i, 'AND')) {
+                    out = out.trimEnd() + '\n' + sp;
+                    out += sql.slice(i, i + 3);
+                    i += 3;
+                    if (i < n && sql[i] === ' ') {
+                        i++;
+                    }
+                    out += ' ';
+                    continue;
+                }
+                if (peekWord(i, 'OR')) {
+                    out = out.trimEnd() + '\n' + sp;
+                    out += sql.slice(i, i + 2);
+                    i += 2;
+                    if (i < n && sql[i] === ' ') {
+                        i++;
+                    }
+                    out += ' ';
+                    continue;
                 }
             }
         }
-        // Detect if line starts with a main SQL clause keyword
-        const upperProcessed = processed.toUpperCase().trimStart();
-        let isClause = false;
-        for (const kw of CLAUSE_KEYWORDS) {
-            if (upperProcessed.startsWith(kw + ' ') || upperProcessed === kw || upperProcessed.startsWith(kw + '\t')) {
-                isClause = true;
-                break;
-            }
-        }
-        formattedLines.push(processed);
+        out += ch;
+        i++;
     }
-    return formattedLines.join('\n');
+    // ── Step 5: Tidy output ─────────────────────────────────────────────────
+    out = out
+        .split('\n')
+        .map(l => l.trimEnd())
+        .join('\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+    // ── Step 6: Restore protected literals ──────────────────────────────────
+    return out.replace(/\x01(\d+)\x01/g, (_, idx) => holes[parseInt(idx)]);
 }
 // ClickHouse keywords list for completion
 const CH_KEYWORDS = [
