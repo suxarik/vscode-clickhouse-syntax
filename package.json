@@ -2,7 +2,7 @@
   "name": "clickhouse-syntax",
   "displayName": "ClickHouse SQL Syntax",
   "description": "Syntax highlighting, auto-detection, formatting and 400+ completions for ClickHouse SQL — MergeTree engines, ClickHouse-exclusive types, functions and clauses.",
-  "version": "1.1.1",
+  "version": "1.2.1",
   "publisher": "SuXarikisme",
   "icon": "images/clickhouse.png",
   "engines": {
@@ -11,14 +11,21 @@
   "categories": [
     "Programming Languages",
     "Formatters",
-    "Snippets"
+    "Snippets",
+    "Linters",
+    "Machine Learning"
   ],
   "keywords": [
     "clickhouse",
     "sql",
     "database",
     "syntax",
-    "highlight"
+    "highlight",
+    "intellisense",
+    "completion",
+    "hover",
+    "diagnostics",
+    "formatter"
   ],
   "galleryBanner": {
     "color": "#1A1A2E",
@@ -37,7 +44,10 @@
     "onLanguage:plaintext",
     "onLanguage:clickhouse",
     "onCommand:clickhouse.formatDocument",
-    "onCommand:clickhouse.detectLanguage"
+    "onCommand:clickhouse.detectLanguage",
+    "onCommand:clickhouse.reloadSchema",
+    "onCommand:clickhouse.validateSchema",
+    "onCommand:clickhouse.generateSchemaTemplate"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -72,6 +82,21 @@
         "title": "Format ClickHouse SQL",
         "category": "ClickHouse",
         "icon": "$(symbol-keyword)"
+      },
+      {
+        "command": "clickhouse.reloadSchema",
+        "title": "Reload Schema",
+        "category": "ClickHouse"
+      },
+      {
+        "command": "clickhouse.validateSchema",
+        "title": "Validate Schema",
+        "category": "ClickHouse"
+      },
+      {
+        "command": "clickhouse.generateSchemaTemplate",
+        "title": "Generate Schema Template",
+        "category": "ClickHouse"
       }
     ],
     "menus": {
@@ -86,6 +111,18 @@
         {
           "command": "clickhouse.formatDocument",
           "when": "editorIsOpen"
+        },
+        {
+          "command": "clickhouse.reloadSchema",
+          "when": "editorLangId == 'clickhouse' || editorLangId == 'sql'"
+        },
+        {
+          "command": "clickhouse.validateSchema",
+          "when": "editorLangId == 'clickhouse' || editorLangId == 'sql'"
+        },
+        {
+          "command": "clickhouse.generateSchemaTemplate",
+          "when": "editorLangId == 'clickhouse' || editorLangId == 'sql'"
         }
       ]
     },
@@ -135,6 +172,129 @@
           "type": "number",
           "default": 4,
           "description": "Number of spaces for indentation"
+        },
+        "clickhouse.schema.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable schema-aware IntelliSense features"
+        },
+        "clickhouse.schema.paths": {
+          "type": [
+            "string",
+            "array"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "./clickhouse-schema.json"
+          ],
+          "description": "Paths to schema definition files (supports glob patterns)"
+        },
+        "clickhouse.schema.autoRefresh": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically reload schema when definition files change"
+        },
+        "clickhouse.completion.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable code completion"
+        },
+        "clickhouse.completion.includeKeywords": {
+          "type": "boolean",
+          "default": true,
+          "description": "Include SQL keywords in completion suggestions"
+        },
+        "clickhouse.completion.includeFunctions": {
+          "type": "boolean",
+          "default": true,
+          "description": "Include ClickHouse functions in completion suggestions"
+        },
+        "clickhouse.completion.includeDataTypes": {
+          "type": "boolean",
+          "default": true,
+          "description": "Include ClickHouse data types in completion suggestions"
+        },
+        "clickhouse.completion.includeTables": {
+          "type": "boolean",
+          "default": true,
+          "description": "Include tables from schema in completion suggestions"
+        },
+        "clickhouse.completion.includeColumns": {
+          "type": "boolean",
+          "default": true,
+          "description": "Include columns from schema in completion suggestions"
+        },
+        "clickhouse.completion.includeQualifiedNames": {
+          "type": "boolean",
+          "default": true,
+          "description": "Include fully qualified names (database.table) in completion suggestions"
+        },
+        "clickhouse.hover.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable hover documentation"
+        },
+        "clickhouse.hover.showTableSchema": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show table schema in hover documentation"
+        },
+        "clickhouse.hover.showColumnType": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show column type in hover documentation"
+        },
+        "clickhouse.hover.showFunctionSignature": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show function signature in hover documentation"
+        },
+        "clickhouse.hover.showExamples": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show examples in hover documentation"
+        },
+        "clickhouse.signatureHelp.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable function signature help"
+        },
+        "clickhouse.diagnostics.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable semantic error checking and diagnostics"
+        },
+        "clickhouse.diagnostics.schemaValidation": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable schema validation (unknown tables/columns)"
+        },
+        "clickhouse.diagnostics.bestPractices": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable best practices checks"
+        },
+        "clickhouse.codeActions.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable code actions for SQL fixes and improvements"
+        },
+        "clickhouse.codeActions.quickFixes": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable quick fixes for diagnostics"
+        },
+        "clickhouse.codeActions.refactorings": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable refactoring actions"
+        },
+        "clickhouse.codeActions.transformations": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable transformation actions"
         }
       }
     }
@@ -143,12 +303,18 @@
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "package": "vsce package"
+    "package": "vsce package",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage"
   },
   "devDependencies": {
+    "@types/jest": "^30.0.0",
     "@types/node": "^18.0.0",
     "@types/vscode": "^1.75.0",
     "@vscode/vsce": "^2.19.0",
+    "jest": "^30.3.0",
+    "ts-jest": "^29.4.9",
     "typescript": "^5.0.0"
   }
 }

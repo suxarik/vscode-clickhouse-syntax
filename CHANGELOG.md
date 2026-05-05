@@ -2,6 +2,69 @@
 
 All notable changes to the ClickHouse SQL Syntax extension will be documented in this file.
 
+## [1.2.1] - 2026-05-05
+
+### Changed
+- **Major codebase refactoring** — split monolithic `extension.ts` (1450 lines) into focused modules by separation of concerns:
+  - `src/types.ts` — shared TypeScript interfaces
+  - `src/schemaManager.ts` — schema loading, validation, file watching
+  - `src/functionDocs.ts` — 200+ ClickHouse function database
+  - `src/constants.ts` — detection patterns, keywords, data types
+  - `src/sqlContext.ts` — SQL context detection helpers
+  - `src/sqlFormatter.ts` — SQL formatting engine
+  - `src/providers/hoverProvider.ts` — hover documentation provider
+  - `src/providers/completionProvider.ts` — IntelliSense completion provider
+  - `src/providers/signatureHelpProvider.ts` — function signature help provider
+  - `src/providers/diagnosticProvider.ts` — diagnostic engine with advanced checks
+  - `src/providers/codeActionProvider.ts` — code actions and refactorings
+  - `src/extension.ts` — thin orchestrator (~120 lines) that wires everything together
+
+### Added
+- **Advanced diagnostics**
+  - Missing `FINAL` warning for Replacing/Collapsing/VersionedCollapsingMergeTree tables
+  - Inefficient `NOT IN` pattern detection
+  - Unbounded `LIMIT` without `ORDER BY` warning
+  - `OR` on different columns index inefficiency hint
+- **Advanced code actions**
+  - Add `FINAL` for deduplicating engines
+  - Wrap equality filter in `indexHint()`
+  - Real `SELECT *` expansion using schema column lists
+  - `CASE WHEN` → `multiIf` conversion with proper syntax
+- **Test infrastructure** — Jest + ts-jest setup with 28 unit tests covering:
+  - SQL context detection (`isClickHouseSQL`, `extractTableReferences`, `hasClause`)
+  - SQL formatter (keyword case, string preservation, clause breaking)
+  - Function database completeness (200+ functions, all categories, no duplicates)
+  - Constants validation (detection patterns, keywords, data types)
+
+## [1.2.0] - 2026-05-05
+
+### Added
+- **Schema-aware IntelliSense** — define your database schema in JSON for intelligent completions
+  - `clickhouse-schema.json` format with databases, tables, columns, and indexes
+  - Auto-reload on schema file changes
+  - Commands: `Reload Schema`, `Validate Schema`, `Generate Schema Template`
+- **Enhanced Hover Documentation**
+  - Detailed function info: signature, return type, category, examples
+  - Table hover: engine, columns with types and descriptions
+  - Column hover: data type, default value, description
+  - Configurable via `clickhouse.hover.*` settings
+- **Function Signature Help** — real-time parameter hints when typing function calls
+  - Active parameter highlighting
+  - Triggered automatically by `(` and `,`
+  - Supports 200+ functions with full signature information
+- **Diagnostics & Code Actions**
+  - Schema validation: warns about unknown tables/columns
+  - Best practices: suggests avoiding `SELECT *`
+  - Quick fixes: expand `SELECT *`, convert to `PREWHERE`, `CASE` ↔ `multiIf`
+- **Context-aware Completions**
+  - Table suggestions in `FROM` / `JOIN` context
+  - Column suggestions in `SELECT` / `WHERE` / `GROUP BY` / `ORDER BY`
+  - `table.column` completions after typing `table.`
+  - Fully qualified names (`database.table`)
+- **200+ new function entries** expanded from 20 to 200+ with signatures, categories, return types
+- **20+ new configuration options** for fine-grained control of all IntelliSense features
+
+
 ## [1.1.1] - 2026-02-27
 
 ### Fixed

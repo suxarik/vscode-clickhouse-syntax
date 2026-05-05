@@ -40,17 +40,57 @@ Full syntax highlighting for ClickHouse-specific constructs:
 | `settings` | SETTINGS clause |
 
 ### 📖 Hover Documentation
-Hover over ClickHouse functions to see:
-- Function signature
-- Description
-- Usage examples
+Hover over ClickHouse functions, tables, and columns to see:
+- **Functions**: signature, description, return type, usage examples
+- **Tables**: engine, columns with types, descriptions
+- **Columns**: data type, default value, description
+- Links to official ClickHouse documentation
 
 ### 💡 Auto-Completion
-IntelliSense completions for:
-- All ClickHouse keywords and clauses
-- 400+ ClickHouse functions with snippet templates
-- ClickHouse data types
-- Available for both `.chsql` and `.sql` files
+IntelliSense completions with context-aware suggestions:
+- **Schema-aware**: table and column completions based on your schema definition
+- **400+ ClickHouse functions** with snippet templates
+- **ClickHouse keywords** and clauses
+- **ClickHouse data types**
+- Qualified names (`database.table`) support
+- Works in `.chsql`, `.sql`, and injected SQL files
+
+### 🎯 Function Signature Help
+Real-time parameter hints while typing function calls:
+- Active parameter highlighting
+- Parameter names and types
+- Function return type
+- Triggered automatically by `(` and `,`
+
+### 🔍 Diagnostics & Code Actions
+Smart error checking and quick fixes:
+- **Schema validation**: warns about unknown tables/columns
+- **Best practices**: suggests improvements (e.g., avoid `SELECT *`)
+- **Quick fixes**: expand `SELECT *`, convert to `PREWHERE`, transform `CASE` ↔ `multiIf`
+
+### 📊 Schema Definition
+Define your database schema for enhanced IntelliSense:
+```json
+{
+  "databases": [
+    {
+      "name": "analytics",
+      "tables": [
+        {
+          "name": "events",
+          "engine": "MergeTree",
+          "columns": [
+            { "name": "event_id", "type": "UInt64" },
+            { "name": "event_time", "type": "DateTime" }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+- Auto-reloads when schema file changes
+- Schema validation and template generation commands
 
 ### 🔧 SQL Formatter
 
@@ -116,11 +156,66 @@ You can also manually set the language to **ClickHouse SQL** using the language 
 
 ## Configuration
 
+### Formatting
+
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `clickhouse.format.enabled` | `true` | Enable/disable SQL formatting |
 | `clickhouse.format.keywordCase` | `upper` | Keyword case: `upper`, `lower`, or `preserve` |
 | `clickhouse.format.indentSize` | `4` | Number of spaces for indentation |
+
+### Schema
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `clickhouse.schema.enabled` | `true` | Enable schema-aware IntelliSense |
+| `clickhouse.schema.paths` | `["./clickhouse-schema.json"]` | Schema file paths (glob supported) |
+| `clickhouse.schema.autoRefresh` | `true` | Auto-reload schema on file changes |
+
+### Completion
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `clickhouse.completion.enabled` | `true` | Enable code completion |
+| `clickhouse.completion.includeKeywords` | `true` | Include keywords |
+| `clickhouse.completion.includeFunctions` | `true` | Include functions |
+| `clickhouse.completion.includeDataTypes` | `true` | Include data types |
+| `clickhouse.completion.includeTables` | `true` | Include schema tables |
+| `clickhouse.completion.includeColumns` | `true` | Include schema columns |
+| `clickhouse.completion.includeQualifiedNames` | `true` | Include `db.table` names |
+
+### Hover
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `clickhouse.hover.enabled` | `true` | Enable hover documentation |
+| `clickhouse.hover.showTableSchema` | `true` | Show table info on hover |
+| `clickhouse.hover.showColumnType` | `true` | Show column type on hover |
+| `clickhouse.hover.showFunctionSignature` | `true` | Show function signature |
+| `clickhouse.hover.showExamples` | `true` | Show usage examples |
+
+### Signature Help
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `clickhouse.signatureHelp.enabled` | `true` | Enable function signature help |
+
+### Diagnostics
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `clickhouse.diagnostics.enabled` | `true` | Enable diagnostics |
+| `clickhouse.diagnostics.schemaValidation` | `true` | Validate tables/columns against schema |
+| `clickhouse.diagnostics.bestPractices` | `true` | Show best practice suggestions |
+
+### Code Actions
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `clickhouse.codeActions.enabled` | `true` | Enable code actions |
+| `clickhouse.codeActions.quickFixes` | `true` | Enable quick fixes |
+| `clickhouse.codeActions.refactorings` | `true` | Enable refactorings |
+| `clickhouse.codeActions.transformations` | `true` | Enable transformations |
 
 ---
 
