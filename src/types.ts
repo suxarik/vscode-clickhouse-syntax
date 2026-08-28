@@ -16,7 +16,7 @@ export interface SchemaTable {
     name: string;
     description?: string;
     engine?: string;
-    engineOptions?: Record<string, any>;
+    engineOptions?: Record<string, unknown>;
     columns: SchemaColumn[];
     indexes?: Array<{
         name: string;
@@ -25,7 +25,7 @@ export interface SchemaTable {
         granularity?: number;
     }>;
     ttl?: string;
-    settings?: Record<string, any>;
+    settings?: Record<string, unknown>;
 }
 
 export interface SchemaDatabase {

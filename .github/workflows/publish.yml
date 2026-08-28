@@ -66,8 +66,17 @@ jobs:
           git tag "v$NEW_VERSION"
           git push origin HEAD:${{ github.ref_name }} --follow-tags
 
-      - name: Compile TypeScript
+      - name: Type-check
         run: npm run compile
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      - name: Bundle
+        run: npm run package:bundle
 
       - name: Package .vsix
         run: npx @vscode/vsce package --no-dependencies

@@ -7,3 +7,5 @@ example.sql
 images/icon.png
 coverage/
 *.log
+plans/
+dist/

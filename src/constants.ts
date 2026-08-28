@@ -40,6 +40,14 @@ export const CH_DETECTION_PATTERNS: RegExp[] = [
     /\bON\s+CLUSTER\s+\w+/i,
 ];
 
+/**
+ * Curated completion keywords.
+ *
+ * Deliberately not the raw `system.keywords` list from the catalog: this one is
+ * phrases people actually type — `GROUP BY`, `LEFT ARRAY JOIN`, `WITH TOTALS` —
+ * rather than 647 individual tokens. Data types, engines and functions all come
+ * from the catalog instead; see src/catalog.
+ */
 export const CH_KEYWORDS = [
     'SELECT', 'DISTINCT', 'FROM', 'WHERE', 'GROUP BY', 'ORDER BY', 'HAVING',
     'LIMIT', 'LIMIT BY', 'OFFSET', 'UNION ALL', 'UNION', 'INTERSECT', 'EXCEPT',
@@ -90,22 +98,4 @@ export const CH_KEYWORDS = [
     'URL', 'Kafka', 'EmbeddedRocksDB', 'RabbitMQ',
     'PostgreSQL', 'MySQL', 'MongoDB', 'HDFS', 'S3',
     'generateUUIDv4', 'generateUUIDv7', 'now', 'today', 'yesterday',
-];
-
-export const CH_DATA_TYPES = [
-    'UInt8', 'UInt16', 'UInt32', 'UInt64', 'UInt128', 'UInt256',
-    'Int8', 'Int16', 'Int32', 'Int64', 'Int128', 'Int256',
-    'Float32', 'Float64', 'Decimal', 'Decimal32', 'Decimal64', 'Decimal128', 'Decimal256',
-    'String', 'FixedString', 'UUID', 'IPv4', 'IPv6',
-    'Date', 'Date32', 'DateTime', 'DateTime64',
-    'Array', 'Tuple', 'Map', 'Nested', 'Set',
-    'Nullable', 'LowCardinality',
-    'AggregateFunction', 'SimpleAggregateFunction',
-    'Enum8', 'Enum16', 'Bool', 'Nothing',
-    'IntervalSecond', 'IntervalMinute', 'IntervalHour',
-    'IntervalDay', 'IntervalWeek', 'IntervalMonth',
-    'IntervalQuarter', 'IntervalYear',
-    'Point', 'Ring', 'Polygon', 'MultiPolygon',
-    'JSON', 'Dynamic', 'Variant',
-    'BFloat16',
 ];

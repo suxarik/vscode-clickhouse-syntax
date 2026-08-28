@@ -1,8 +1,8 @@
 {
   "name": "clickhouse-syntax",
   "displayName": "ClickHouse SQL Syntax",
-  "description": "Syntax highlighting, auto-detection, formatting and 400+ completions for ClickHouse SQL — MergeTree engines, ClickHouse-exclusive types, functions and clauses.",
-  "version": "1.2.1",
+  "description": "ClickHouse SQL for VS Code: dialect-aware syntax highlighting, schema-aware IntelliSense, diagnostics, quick fixes and a formatter that never rewrites your identifiers.",
+  "version": "1.4.0",
   "publisher": "SuXarikisme",
   "icon": "images/clickhouse.png",
   "engines": {
@@ -12,8 +12,7 @@
     "Programming Languages",
     "Formatters",
     "Snippets",
-    "Linters",
-    "Machine Learning"
+    "Linters"
   ],
   "keywords": [
     "clickhouse",
@@ -41,15 +40,9 @@
   },
   "activationEvents": [
     "onLanguage:sql",
-    "onLanguage:plaintext",
-    "onLanguage:clickhouse",
-    "onCommand:clickhouse.formatDocument",
-    "onCommand:clickhouse.detectLanguage",
-    "onCommand:clickhouse.reloadSchema",
-    "onCommand:clickhouse.validateSchema",
-    "onCommand:clickhouse.generateSchemaTemplate"
+    "onLanguage:clickhouse"
   ],
-  "main": "./out/extension.js",
+  "main": "./dist/extension.js",
   "contributes": {
     "languages": [
       {
@@ -97,32 +90,54 @@
         "command": "clickhouse.generateSchemaTemplate",
         "title": "Generate Schema Template",
         "category": "ClickHouse"
+      },
+      {
+        "command": "clickhouse.toggleLanguage",
+        "title": "Toggle ClickHouse SQL / SQL for This File",
+        "category": "ClickHouse"
+      },
+      {
+        "command": "clickhouse.showCatalogInfo",
+        "title": "Show Catalog Info",
+        "category": "ClickHouse"
       }
     ],
     "menus": {
       "editor/context": [
         {
           "command": "clickhouse.formatDocument",
-          "when": "editorTextFocus && (editorLangId == 'clickhouse' || editorLangId == 'sql' || editorLangId == 'plaintext')",
+          "when": "editorTextFocus && (editorLangId == 'clickhouse' || editorLangId == 'sql')",
           "group": "1_modification@10"
         }
       ],
       "commandPalette": [
         {
           "command": "clickhouse.formatDocument",
+          "when": "editorLangId == 'clickhouse' || editorLangId == 'sql'"
+        },
+        {
+          "command": "clickhouse.detectLanguage",
           "when": "editorIsOpen"
         },
         {
-          "command": "clickhouse.reloadSchema",
+          "command": "clickhouse.toggleLanguage",
           "when": "editorLangId == 'clickhouse' || editorLangId == 'sql'"
+        },
+        {
+          "command": "clickhouse.reloadSchema",
+          "when": "true"
         },
         {
           "command": "clickhouse.validateSchema",
-          "when": "editorLangId == 'clickhouse' || editorLangId == 'sql'"
+          "when": "true"
         },
         {
           "command": "clickhouse.generateSchemaTemplate",
-          "when": "editorLangId == 'clickhouse' || editorLangId == 'sql'"
+          "when": "true"
+        },
+        {
+          "command": "clickhouse.showCatalogInfo",
+          "when": "true"
         }
       ]
     },
@@ -295,26 +310,94 @@
           "type": "boolean",
           "default": true,
           "description": "Enable transformation actions"
+        },
+        "clickhouse.detect.mode": {
+          "type": "string",
+          "enum": [
+            "off",
+            "prompt",
+            "auto"
+          ],
+          "enumDescriptions": [
+            "Never change a document's language automatically.",
+            "Ask before switching a .sql file to ClickHouse SQL, and remember the answer per file.",
+            "Switch matching files to ClickHouse SQL without asking."
+          ],
+          "default": "prompt",
+          "description": "What to do when a file looks like ClickHouse SQL."
+        },
+        "clickhouse.detect.includePlaintext": {
+          "type": "boolean",
+          "default": false,
+          "description": "Also consider plain text files for ClickHouse SQL detection."
+        },
+        "clickhouse.format.registerForSqlLanguage": {
+          "type": "boolean",
+          "default": false,
+          "description": "Offer this formatter for plain \"sql\" files too. Off by default so it does not compete with formatters for other SQL dialects."
+        },
+        "clickhouse.diagnostics.debounceMs": {
+          "type": "number",
+          "default": 300,
+          "minimum": 0,
+          "maximum": 5000,
+          "description": "How long to wait after the last edit before re-running diagnostics."
+        },
+        "clickhouse.completion.maxItems": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "description": "Cap the number of completion items (0 = no limit). Only raise this above 0 for very large schemas; capping the list also limits what VS Code can filter against."
+        },
+        "clickhouse.serverVersion": {
+          "type": "string",
+          "default": "auto",
+          "pattern": "^(auto|\\d+(\\.\\d+)*)$",
+          "markdownDescription": "ClickHouse version to target, e.g. `24.8`. Functions introduced after this version are hidden from completion. `auto` offers everything the catalog knows."
+        },
+        "clickhouse.diagnostics.settingsValidation": {
+          "type": "boolean",
+          "default": true,
+          "description": "Validate names, tiers and value types inside SETTINGS clauses against the catalog."
         }
       }
     }
   },
   "scripts": {
-    "vscode:prepublish": "npm run compile",
+    "vscode:prepublish": "npm run package:bundle",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
+    "bundle": "node esbuild.js",
+    "package:bundle": "node esbuild.js --production",
     "package": "vsce package",
+    "lint": "eslint src --max-warnings 0",
+    "lint:fix": "eslint src --fix",
+    "format:check": "prettier --check \"src/**/*.ts\"",
     "test": "jest",
     "test:watch": "jest --watch",
-    "test:coverage": "jest --coverage"
+    "test:coverage": "jest --coverage",
+    "catalog": "node scripts/generate-catalog.mjs"
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",
     "@types/node": "^18.0.0",
     "@types/vscode": "^1.75.0",
+    "@typescript-eslint/eslint-plugin": "^8.68.0",
+    "@typescript-eslint/parser": "^8.68.0",
     "@vscode/vsce": "^2.19.0",
+    "esbuild": "^0.28.2",
+    "eslint": "^9.39.5",
     "jest": "^30.3.0",
+    "prettier": "^3.9.6",
     "ts-jest": "^29.4.9",
-    "typescript": "^5.0.0"
+    "typescript": "^5.0.0",
+    "typescript-eslint": "^8.68.0"
+  },
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": true,
+      "description": "Schema files are read as data only; no code from the workspace is executed."
+    },
+    "virtualWorkspaces": true
   }
 }
