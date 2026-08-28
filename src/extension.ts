@@ -13,6 +13,12 @@ import { registerSignatureHelpProvider } from './providers/signatureHelpProvider
 import { createDiagnosticCollection, DiagnosticManager } from './providers/diagnosticProvider';
 import { registerCodeActionProvider } from './providers/codeActionProvider';
 import { Catalog, CATALOG_VERSION, CATALOG_GENERATED_AT, CATALOG_COUNTS } from './catalog';
+import { AnalysisCache } from './analysis';
+import { RULES } from './lint/engine';
+import { registerStructureProviders } from './providers/structureProvider';
+import { registerSemanticTokensProvider } from './providers/semanticTokensProvider';
+import { registerNavigationProviders } from './providers/navigationProvider';
+import { registerInlayHintsProvider } from './providers/inlayHintsProvider';
 
 const SUPPORTED_LANGUAGES = ['clickhouse', 'sql'];
 
@@ -20,12 +26,13 @@ function isSupported(document: vscode.TextDocument): boolean {
     return SUPPORTED_LANGUAGES.includes(document.languageId);
 }
 
-function formatOptions(): { keywordCase: KeywordCase; indentSize: number } {
+function formatOptions(): { keywordCase: KeywordCase; indentSize: number; maxLineWidth: number } {
     const config = vscode.workspace.getConfiguration('clickhouse');
     const keywordCase = config.get<string>('format.keywordCase', 'upper');
     return {
         keywordCase: keywordCase === 'lower' ? 'lower' : keywordCase === 'preserve' ? 'preserve' : 'upper',
         indentSize: config.get<number>('format.indentSize', 4),
+        maxLineWidth: config.get<number>('format.maxLineWidth', 100),
     };
 }
 
@@ -47,8 +54,11 @@ export function activate(context: vscode.ExtensionContext) {
     const detector = new LanguageDetector(context);
     context.subscriptions.push(schemaManager, detector);
 
+    const analysisCache = new AnalysisCache(schemaManager, catalog);
+    context.subscriptions.push(analysisCache);
+
     const diagnosticCollection = createDiagnosticCollection();
-    const diagnostics = new DiagnosticManager(diagnosticCollection, schemaManager, catalog);
+    const diagnostics = new DiagnosticManager(diagnosticCollection, analysisCache, schemaManager, catalog);
     context.subscriptions.push(diagnosticCollection, diagnostics);
 
     // ── Formatting providers, re-registered when the setting changes ──
@@ -76,7 +86,8 @@ export function activate(context: vscode.ExtensionContext) {
         }),
         vscode.workspace.onDidChangeConfiguration(e => {
             if (e.affectsConfiguration('clickhouse.format.registerForSqlLanguage')) registerFormatters();
-            if (e.affectsConfiguration('clickhouse.diagnostics')) {
+            if (e.affectsConfiguration('clickhouse.diagnostics') || e.affectsConfiguration('clickhouse.serverVersion')) {
+                analysisCache.invalidate();
                 for (const document of vscode.workspace.textDocuments) {
                     if (isSupported(document)) diagnostics.run(document);
                 }
@@ -108,9 +119,13 @@ export function activate(context: vscode.ExtensionContext) {
     // ── IntelliSense providers ──
     context.subscriptions.push(
         registerHoverProvider(schemaManager, catalog),
-        registerCompletionProvider(schemaManager, catalog),
+        registerCompletionProvider(schemaManager, catalog, analysisCache),
         registerSignatureHelpProvider(catalog),
-        registerCodeActionProvider(schemaManager)
+        registerCodeActionProvider(schemaManager),
+        registerSemanticTokensProvider(analysisCache, catalog),
+        registerInlayHintsProvider(analysisCache, schemaManager, catalog),
+        ...registerStructureProviders(analysisCache),
+        ...registerNavigationProviders(analysisCache, schemaManager)
     );
 
     // Warm the catalog assets in the background so the first hover is not the
@@ -124,6 +139,7 @@ export function activate(context: vscode.ExtensionContext) {
 
         vscode.commands.registerCommand('clickhouse.reloadSchema', async () => {
             const result = await schemaManager.loadSchema();
+            analysisCache.invalidate();
             if (result.schema) {
                 const tables = result.schema.databases.reduce((n, db) => n + db.tables.length, 0);
                 vscode.window.showInformationMessage(
@@ -190,11 +206,33 @@ export function activate(context: vscode.ExtensionContext) {
                 // Does not exist yet — nothing to confirm.
             }
 
-            await vscode.workspace.fs.writeFile(uri, Buffer.from(JSON.stringify(SCHEMA_TEMPLATE, null, 2), 'utf8'));
+            await vscode.workspace.fs.writeFile(
+                uri,
+                new TextEncoder().encode(JSON.stringify(SCHEMA_TEMPLATE, null, 2))
+            );
             await schemaManager.loadSchema();
             const document = await vscode.workspace.openTextDocument(uri);
             await vscode.window.showTextDocument(document);
             vscode.window.showInformationMessage(`ClickHouse: schema template created at ${uri.fsPath}`);
+        }),
+
+        vscode.commands.registerCommand('clickhouse.showLintRules', async () => {
+            const configured = vscode.workspace
+                .getConfiguration('clickhouse')
+                .get<Record<string, string>>('diagnostics.rules', {});
+            const channel = vscode.window.createOutputChannel('ClickHouse Lint Rules');
+            channel.clear();
+            channel.appendLine(`${RULES.length} lint rules. Set a severity with "clickhouse.diagnostics.rules".`);
+            channel.appendLine('');
+            const width = Math.max(...RULES.map(rule => rule.id.length));
+            for (const rule of [...RULES].sort((a, b) => a.id.localeCompare(b.id))) {
+                const effective = configured[rule.id] ?? rule.defaultSeverity;
+                const marker = configured[rule.id] ? ' (overridden)' : '';
+                channel.appendLine(`  ${rule.id.padEnd(width)}  ${effective.padEnd(8)}${marker}  ${rule.description}`);
+            }
+            channel.appendLine('');
+            channel.appendLine('Silence one inline with:  -- ch-lint-disable-next-line <rule>');
+            channel.show(true);
         }),
 
         vscode.commands.registerCommand('clickhouse.showCatalogInfo', async () => {

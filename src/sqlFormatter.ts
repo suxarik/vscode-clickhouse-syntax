@@ -11,6 +11,8 @@ import { applyKeywordCase, findKeywordTokens, statementKind, KeywordCase, TIGHT_
 export interface FormatOptions {
     keywordCase: KeywordCase;
     indentSize: number;
+    /** Break long parenthesised lists past this column. 0 disables it. */
+    maxLineWidth?: number;
 }
 
 type StatementKind = ReturnType<typeof statementKind>;
@@ -264,8 +266,15 @@ class Emitter {
     private pendingIndent: number | null = null;
     private lineEmpty = true;
     private started = false;
+    private lineLength = 0;
 
     constructor(private readonly unit: string) {}
+
+    /** Column the next character would be written at. */
+    get column(): number {
+        if (this.pendingIndent !== null) return this.pendingIndent * this.unit.length;
+        return this.lineLength;
+    }
 
     breakLine(indent: number): void {
         this.pendingIndent = indent;
@@ -275,6 +284,7 @@ class Emitter {
         if (this.pendingIndent !== null) {
             if (this.started) this.parts.push('\n');
             this.parts.push(this.unit.repeat(this.pendingIndent));
+            this.lineLength = this.pendingIndent * this.unit.length;
             this.pendingIndent = null;
             this.lineEmpty = false;
             this.started = true;
@@ -282,6 +292,7 @@ class Emitter {
         this.started = true;
         this.lineEmpty = false;
         this.parts.push(text);
+        this.lineLength += text.length;
     }
 
     space(): void {
@@ -289,6 +300,7 @@ class Emitter {
         const last = this.parts[this.parts.length - 1];
         if (last === undefined || last.endsWith(' ')) return;
         this.parts.push(' ');
+        this.lineLength += 1;
     }
 
     toString(): string {
@@ -306,6 +318,8 @@ class Emitter {
 
 interface PrintContext {
     stmtKind: StatementKind;
+    /** 0 disables width-driven breaking. */
+    maxLineWidth: number;
     /** Cleared once the DDL column-definition list has been consumed. */
     columnListPending: boolean;
     /** Cleared once the INSERT column list has been consumed. */
@@ -388,9 +402,23 @@ class Printer {
         return null;
     }
 
+    /**
+     * Whether rendering this group inline would run past `maxLineWidth`. Only
+     * groups with something to split on are worth breaking.
+     */
+    private exceedsWidth(group: GroupNode): boolean {
+        const max = this.ctx.maxLineWidth;
+        if (max <= 0) return false;
+        if (!group.items.some(item => isPunct(item, ','))) return false;
+        const inline = this.renderInline([group]);
+        if (inline.includes('\n')) return false;
+        return this.emitter.column + inline.length > max;
+    }
+
+    /** Render nodes on one line, for measuring. Never breaks. */
     private renderInline(nodes: Node[]): string {
         const emitter = new Emitter('');
-        const printer = new Printer(emitter, this.ctx);
+        const printer = new Printer(emitter, { ...this.ctx, maxLineWidth: 0 });
         printer.prev = null;
         for (const node of nodes) {
             if (node.type === 'group') {
@@ -402,13 +430,22 @@ class Printer {
         return emitter.toString();
     }
 
-    private writeGroupInline(group: GroupNode, forceSpace = false): void {
+    /**
+     * Render a group on the current line. When `indent` is given, nested groups
+     * are routed back through `writeNode` so a breakable one inside an
+     * unbreakable parent still gets its own width check.
+     */
+    private writeGroupInline(group: GroupNode, forceSpace = false, indent?: number): void {
         if (forceSpace || needsSpaceBefore(this.prev, group.open, true)) this.emitter.space();
         this.emitter.write(group.open.text);
         this.prev = { token: group.open, keyword: false, unaryOperator: false };
         for (const item of group.items) {
-            if (item.type === 'group') this.writeGroupInline(item);
-            else this.writeToken(item);
+            if (item.type === 'group') {
+                if (indent !== undefined) this.writeNode(item, indent);
+                else this.writeGroupInline(item);
+            } else {
+                this.writeToken(item);
+            }
         }
         if (group.close) {
             this.emitter.write(group.close.text);
@@ -416,7 +453,7 @@ class Printer {
         }
     }
 
-    private writeGroupBlock(group: GroupNode, indent: number, style: 'subquery' | 'list'): void {
+    private writeGroupBlock(group: GroupNode, indent: number, style: 'subquery' | 'list' | 'args'): void {
         if (style === 'list') {
             // SHOW CREATE TABLE style: the definition list opens on its own line.
             this.breakLine(indent);
@@ -429,7 +466,7 @@ class Printer {
         const inner = new Printer(this.emitter, { ...this.ctx, columnListPending: false, insertColumnsPending: false });
         this.emitter.breakLine(indent + 1);
         inner.prev = null;
-        if (style === 'list') {
+        if (style === 'list' || style === 'args') {
             inner.printList(group.items, indent + 1);
         } else {
             inner.printNodes(group.items, indent + 1, 'none');
@@ -483,9 +520,13 @@ class Printer {
             const forceBlock = hasSub || containsLineComment(node.items);
             if (forceBlock && node.items.length > 0) {
                 this.writeGroupBlock(node, indent, 'subquery');
-            } else {
-                this.writeGroupInline(node);
+                return;
             }
+            if (this.exceedsWidth(node)) {
+                this.writeGroupBlock(node, indent, 'args');
+                return;
+            }
+            this.writeGroupInline(node, false, indent);
             return;
         }
 
@@ -630,6 +671,10 @@ export function formatSQLWithOptions(text: string, options: FormatOptions): stri
 
     const indentSize = Number.isFinite(options.indentSize) && options.indentSize > 0 ? options.indentSize : 4;
     const unit = ' '.repeat(indentSize);
+    const maxLineWidth =
+        options.maxLineWidth !== undefined && Number.isFinite(options.maxLineWidth) && options.maxLineWidth > 0
+            ? options.maxLineWidth
+            : 0;
 
     const tokens = tokenize(text);
     const keywords = findKeywordTokens(tokens);
@@ -645,6 +690,7 @@ export function formatSQLWithOptions(text: string, options: FormatOptions): stri
         const kind = statementKindOf(statement);
         const ctx: PrintContext = {
             stmtKind: kind,
+            maxLineWidth,
             columnListPending: startsColumnList(statement),
             insertColumnsPending: kind === 'insert',
         };
@@ -660,8 +706,8 @@ export function formatSQLWithOptions(text: string, options: FormatOptions): stri
 /**
  * Backwards-compatible entry point.
  */
-export function formatSQL(text: string, keywordCase: string, indentSize: number): string {
+export function formatSQL(text: string, keywordCase: string, indentSize: number, maxLineWidth = 0): string {
     const mode: KeywordCase =
         keywordCase === 'lower' ? 'lower' : keywordCase === 'preserve' ? 'preserve' : 'upper';
-    return formatSQLWithOptions(text, { keywordCase: mode, indentSize });
+    return formatSQLWithOptions(text, { keywordCase: mode, indentSize, maxLineWidth });
 }

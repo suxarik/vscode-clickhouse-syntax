@@ -50,6 +50,7 @@ export const SAMPLE_SCHEMA: ClickHouseSchema = {
                         { name: 'event_id', type: 'UInt64', description: 'Unique id' },
                         { name: 'event_time', type: 'DateTime' },
                         { name: 'user_id', type: 'UInt64' },
+                        { name: 'tags', type: 'Array(String)' },
                     ],
                 },
                 {
@@ -98,12 +99,21 @@ export function makeConfig(overrides: Record<string, unknown> = {}): vscode.Work
     } as unknown as vscode.WorkspaceConfiguration;
 }
 
-/** Document plus the offset of a `|` cursor marker. */
+let documentCounter = 0;
+
+/**
+ * Document plus the offset of a `|` cursor marker.
+ *
+ * Each document gets its own URI: analysis is cached per URI and version, and
+ * two fixtures sharing one URI would collide.
+ */
 export function docAt(sql: string, languageId = 'clickhouse') {
     const offset = sql.indexOf('|');
     const text = offset >= 0 ? sql.replace('|', '') : sql;
-    const document = new (vscode as unknown as { TextDocument: new (t: string, l?: string) => vscode.TextDocument })
-        .TextDocument(text, languageId);
+    const Doc = (vscode as unknown as {
+        TextDocument: new (t: string, l?: string, uri?: vscode.Uri) => vscode.TextDocument;
+    }).TextDocument;
+    const document = new Doc(text, languageId, vscode.Uri.file(`/test/query-${documentCounter++}.sql`));
     return { document, offset: offset < 0 ? 0 : offset, position: document.positionAt(offset < 0 ? 0 : offset) };
 }
 

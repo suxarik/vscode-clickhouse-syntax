@@ -209,6 +209,7 @@ command palette does the same thing explicitly.
 | `clickhouse.format.keywordCase` | `upper` | Keyword case: `upper`, `lower`, or `preserve` |
 | `clickhouse.format.indentSize` | `4` | Number of spaces for indentation |
 | `clickhouse.format.registerForSqlLanguage` | `false` | Also offer this formatter for plain `sql` files |
+| `clickhouse.format.maxLineWidth` | `100` | Break long parenthesised lists past this column (`0` disables) |
 
 ### Language detection
 
@@ -263,6 +264,15 @@ command palette does the same thing explicitly.
 | `clickhouse.diagnostics.bestPractices` | `true` | Show best practice suggestions |
 | `clickhouse.diagnostics.debounceMs` | `300` | Delay after the last edit before re-analysing |
 | `clickhouse.diagnostics.settingsValidation` | `true` | Validate names, tiers and value types in `SETTINGS` |
+| `clickhouse.diagnostics.syntaxErrors` | `true` | Report statements that cannot be parsed |
+| `clickhouse.diagnostics.rules` | `{}` | Severity per rule id |
+
+### Editor features
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `clickhouse.semanticHighlighting.enabled` | `true` | Colour tables, columns and aliases from the parse tree |
+| `clickhouse.inlayHints.columnTypes` | `true` | Show the data type after each projected column |
 
 ### Catalog
 
@@ -367,6 +377,7 @@ npm run test:coverage
 npm run bundle       # esbuild -> dist/extension.js
 npm run package      # build a .vsix
 npm run catalog      # regenerate the catalog from a Dockerised ClickHouse
+npm run docs:rules   # regenerate docs/rules.md from the rule registry
 ```
 
 `npm run catalog` starts `clickhouse/clickhouse-server` in Docker, reads the
@@ -375,11 +386,21 @@ lists, and writes the documentation assets under `catalog/`. Pass
 `--container <name>` to use a server you already have running. The generated output
 is committed, so regeneration is a maintainer task rather than a build step.
 
-The extension is bundled with esbuild; `dist/extension.js` is the only JavaScript
-that ships. Language intelligence is built on a hand-written tokenizer
-(`src/lexer.ts`) and keyword classifier (`src/keywords.ts`) rather than on regexes
-over raw text — that is what keeps identifiers, string bodies and comment text from
-being mistaken for SQL keywords.
+The extension is bundled with esbuild into `dist/extension.js` for the desktop host and
+`dist/web/extension.js` for vscode.dev. The layers, bottom up:
+
+| Module | Responsibility |
+|---|---|
+| `src/lexer.ts` | Tokenizer — comments, string escapes, quoted identifiers, heredocs |
+| `src/keywords.ts` | Which words are keywords *here*, so `SELECT table FROM system.parts` keeps its column name |
+| `src/parser/` | Error-tolerant recursive-descent parser and scope binder |
+| `src/analysis.ts` | One cached parse + bind per document revision |
+| `src/lint/` | The rule registry and the engine that applies severities and inline disables |
+| `src/catalog/` | The generated ClickHouse catalog and its access layer |
+| `src/providers/` | The VS Code surface: completion, hover, diagnostics, symbols, semantics, navigation |
+
+Nothing reads raw text with regexes — that is what keeps identifiers, string bodies and
+comment text from being mistaken for SQL.
 
 ---
 

@@ -11,9 +11,11 @@
 import * as vscode from 'vscode';
 import { SchemaManager } from '../schemaManager';
 import { CH_KEYWORDS } from '../constants';
-import { getSqlContext, isAfterDot, SqlContext, TableRef } from '../sqlContext';
+import { getSqlContext, isAfterDot, SqlContext } from '../sqlContext';
 import { SchemaColumn } from '../types';
 import { Catalog, isAvailableIn, functionDetail, CatalogSystemTable } from '../catalog';
+import { AnalysisCache } from '../analysis';
+import { BoundTable, scopeAt, visibleCtes, visibleTables } from '../parser/binder';
 import { resolveFunction, resolveFunctionSync } from '../functionInfo';
 import { CH_FUNCTION_DOCS } from '../functionDocs';
 
@@ -69,13 +71,57 @@ function systemColumnItems(table: CatalogSystemTable, rank: Rank): vscode.Comple
     });
 }
 
-/** Resolve an alias, CTE or table name against the tables in scope. */
-function resolveQualifier(qualifier: string, context: SqlContext): TableRef | undefined {
+/** Resolve an alias, CTE or table name against the bound tables in scope. */
+function resolveQualifier(qualifier: string, tables: BoundTable[]): BoundTable | undefined {
     const lower = qualifier.toLowerCase();
     return (
-        context.tables.find(t => t.alias?.toLowerCase() === lower) ??
-        context.tables.find(t => t.table.toLowerCase() === lower)
+        tables.find(table => table.alias?.toLowerCase() === lower) ??
+        tables.find(table => table.table?.toLowerCase() === lower) ??
+        tables.find(table => table.label.toLowerCase() === lower)
     );
+}
+
+/** Completion items for a bound table's columns, with types where known. */
+function boundTableColumns(
+    table: BoundTable,
+    schemaManager: SchemaManager,
+    catalog: Catalog,
+    rank: Rank,
+    qualifyWith?: string
+): vscode.CompletionItem[] {
+    const label = qualifyWith ?? table.label;
+
+    // A real table has typed columns; a CTE or subquery only has names.
+    if (table.kind === 'table' && table.table) {
+        if (table.database?.toLowerCase() === 'system') {
+            const systemTable = catalog.systemTableSync(table.table);
+            if (systemTable) return systemColumnItems(systemTable, rank);
+        }
+        const found = schemaManager.findTable(table.table, table.database);
+        if (found) {
+            return found.table.columns.map(column => {
+                const item = columnItem(column, label, rank);
+                if (qualifyWith) {
+                    item.label = `${qualifyWith}.${column.name}`;
+                    item.insertText = `${qualifyWith}.${column.name}`;
+                }
+                return item;
+            });
+        }
+        const systemTable = catalog.systemTableSync(table.table);
+        if (systemTable) return systemColumnItems(systemTable, rank);
+    }
+
+    return (table.columns ?? []).map(name => {
+        const item = new vscode.CompletionItem(
+            qualifyWith ? `${qualifyWith}.${name}` : name,
+            vscode.CompletionItemKind.Field
+        );
+        item.detail = table.kind === 'cte' ? `column of CTE ${table.label}` : `column of ${table.label}`;
+        item.sortText = rankSort(rank, name);
+        if (qualifyWith) item.insertText = `${qualifyWith}.${name}`;
+        return item;
+    });
 }
 
 // ── Clause-specific lists ────────────────────────────────────────────────────
@@ -122,7 +168,9 @@ function engineItems(catalog: Catalog): vscode.CompletionItem[] {
 function addSchemaCompletions(
     items: vscode.CompletionItem[],
     schemaManager: SchemaManager,
+    catalog: Catalog,
     context: SqlContext,
+    tables: BoundTable[],
     config: vscode.WorkspaceConfiguration
 ): void {
     const schema = schemaManager.getSchema();
@@ -165,28 +213,20 @@ function addSchemaCompletions(
     if (!wantColumns) return;
     if (!COLUMN_CLAUSES.has(clause) && clause !== '') return;
 
-    const seen = new Set<string>();
-    const needsQualifier = context.tables.length > 1;
+    const needsQualifier = tables.length > 1;
+    let produced = 0;
 
-    for (const ref of context.tables) {
-        const found = schemaManager.findTable(ref.table, ref.database);
-        if (!found) continue;
-        const label = ref.alias ?? ref.table;
-        for (const column of found.table.columns) {
-            const key = `${label}.${column.name}`.toLowerCase();
-            if (seen.has(key)) continue;
-            seen.add(key);
-            items.push(columnItem(column, label, Rank.ScopedColumn));
-            if (needsQualifier) {
-                const qualified = columnItem(column, label, Rank.ScopedColumn, `${label}.${column.name}`);
-                qualified.label = `${label}.${column.name}`;
-                items.push(qualified);
-            }
+    for (const table of tables) {
+        const columns = boundTableColumns(table, schemaManager, catalog, Rank.ScopedColumn);
+        produced += columns.length;
+        items.push(...columns);
+        if (needsQualifier && table.label) {
+            items.push(...boundTableColumns(table, schemaManager, catalog, Rank.ScopedColumn, table.label));
         }
     }
 
     // Without a resolvable FROM, fall back to every column the schema knows.
-    if (seen.size === 0) {
+    if (produced === 0) {
         const added = new Set<string>();
         for (const entry of schemaManager.getAllColumns()) {
             if (added.has(entry.column.name.toLowerCase())) continue;
@@ -203,7 +243,11 @@ export async function buildCompletions(
     dotCheck: { isAfter: boolean; prefix: string; qualifier: string[] },
     schemaManager: SchemaManager,
     catalog: Catalog,
-    config: vscode.WorkspaceConfiguration
+    config: vscode.WorkspaceConfiguration,
+    /** Tables the binder resolved at the cursor; falls back to none. */
+    tables: BoundTable[] = [],
+    /** CTE names visible at the cursor. */
+    ctes: string[] = []
 ): Promise<vscode.CompletionItem[]> {
     const items: vscode.CompletionItem[] = [];
 
@@ -225,20 +269,21 @@ export async function buildCompletions(
             return items;
         }
 
-        const ref = resolveQualifier(qualifier, context);
-        if (ref?.database?.toLowerCase() === 'system') {
-            const table = await catalog.systemTable(ref.table);
-            if (table) return systemColumnItems(table, Rank.ScopedColumn);
+        const bound = resolveQualifier(qualifier, tables);
+        if (bound) {
+            if (bound.database?.toLowerCase() === 'system' && bound.table) {
+                const systemTable = await catalog.systemTable(bound.table);
+                if (systemTable) return systemColumnItems(systemTable, Rank.ScopedColumn);
+            }
+            const columns = boundTableColumns(bound, schemaManager, catalog, Rank.ScopedColumn);
+            if (columns.length > 0) return columns;
         }
 
         const schema = schemaManager.getSchema();
-        const table = ref
-            ? schemaManager.findTable(ref.table, ref.database)
-            : schemaManager.findTable(
-                  qualifier,
-                  dotCheck.qualifier.length > 1 ? dotCheck.qualifier[dotCheck.qualifier.length - 2] : undefined
-              );
-
+        const table = schemaManager.findTable(
+            qualifier,
+            dotCheck.qualifier.length > 1 ? dotCheck.qualifier[dotCheck.qualifier.length - 2] : undefined
+        );
         if (table) {
             return table.table.columns.map(column => columnItem(column, table.table.name, Rank.ScopedColumn));
         }
@@ -267,17 +312,10 @@ export async function buildCompletions(
         return engineItems(catalog);
     }
 
-    addSchemaCompletions(items, schemaManager, context, config);
-
-    // ── system.* columns for any system table in scope ──
-    for (const ref of context.tables) {
-        if (ref.database?.toLowerCase() !== 'system') continue;
-        const table = await catalog.systemTable(ref.table);
-        if (table) items.push(...systemColumnItems(table, Rank.ScopedColumn));
-    }
+    addSchemaCompletions(items, schemaManager, catalog, context, tables, config);
 
     if (TABLE_CLAUSES.has(clause)) {
-        for (const cte of context.ctes) {
+        for (const cte of ctes) {
             const item = new vscode.CompletionItem(cte, vscode.CompletionItemKind.Class);
             item.detail = 'Common table expression';
             item.sortText = rankSort(Rank.Table, cte);
@@ -375,7 +413,11 @@ export async function resolveCompletion(item: Resolvable, catalog: Catalog): Pro
     return item;
 }
 
-export function registerCompletionProvider(schemaManager: SchemaManager, catalog: Catalog): vscode.Disposable {
+export function registerCompletionProvider(
+    schemaManager: SchemaManager,
+    catalog: Catalog,
+    analysisCache: AnalysisCache
+): vscode.Disposable {
     return vscode.languages.registerCompletionItemProvider(
         [{ language: 'clickhouse' }, { language: 'sql' }],
         {
@@ -388,7 +430,22 @@ export function registerCompletionProvider(schemaManager: SchemaManager, catalog
                 try {
                     const context = getSqlContext(document, position);
                     const dotCheck = isAfterDot(document, position);
-                    return await buildCompletions(context, dotCheck, schemaManager, catalog, config);
+                    // Clause detection comes from the token scan, which copes with
+                    // half-typed input; scope comes from the binder, which knows
+                    // what CTEs and subqueries project.
+                    const analysis = analysisCache.get(document);
+                    const scope = scopeAt(analysis.binding, document.offsetAt(position));
+                    const tables = visibleTables(scope);
+                    const ctes = visibleCtes(scope).map(cte => cte.name.name);
+                    return await buildCompletions(
+                        context,
+                        dotCheck,
+                        schemaManager,
+                        catalog,
+                        config,
+                        tables,
+                        ctes
+                    );
                 } catch (err) {
                     console.error('ClickHouse: completion failed', err);
                     return [];

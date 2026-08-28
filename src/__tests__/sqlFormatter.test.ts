@@ -213,3 +213,49 @@ describe('idempotency', () => {
         });
     }
 });
+
+describe('maxLineWidth', () => {
+    const wide = (sql: string, width: number) => formatSQL(sql, 'upper', 4, width);
+
+    it('leaves short calls on one line', () => {
+        expect(wide('SELECT concat(a, b) FROM t', 100)).toContain('concat(a, b)');
+    });
+
+    it('breaks a call that would run past the limit', () => {
+        const output = wide(
+            'SELECT multiIf(condition_one, value_one, condition_two, value_two, fallback_value) FROM t',
+            40
+        );
+        expect(output).toContain('multiIf(\n');
+        expect(output).toContain('        condition_one,');
+    });
+
+    it('breaks a long IN list', () => {
+        const output = wide("SELECT a FROM t WHERE x IN ('alpha', 'beta', 'gamma', 'delta', 'epsilon')", 40);
+        expect(output).toContain("IN (\n");
+    });
+
+    it('does not break a group with nothing to split on', () => {
+        const output = wide('SELECT someVeryLongFunctionNameIndeed(singleArgumentThatIsLong) FROM t', 20);
+        expect(output).toContain('someVeryLongFunctionNameIndeed(singleArgumentThatIsLong)');
+    });
+
+    it('is disabled at 0', () => {
+        const sql = 'SELECT multiIf(condition_one, value_one, condition_two, value_two, fallback) FROM t';
+        expect(wide(sql, 0)).toContain('multiIf(condition_one, value_one, condition_two, value_two, fallback)');
+    });
+
+    it('stays idempotent when breaking', () => {
+        const sql = 'SELECT multiIf(condition_one, value_one, condition_two, value_two, fallback_value) FROM t';
+        const once = wide(sql, 40);
+        expect(wide(once, 40)).toBe(once);
+    });
+
+    it('accounts for the current indentation', () => {
+        // The same call nested deeper has less room, so it breaks sooner.
+        const shallow = wide('SELECT concat(aaa, bbb, ccc) FROM t', 30);
+        const nested = wide('SELECT toString(concat(aaa, bbb, ccc)) FROM t', 30);
+        expect(shallow).toContain('concat(aaa, bbb, ccc)');
+        expect(nested).toContain('concat(\n');
+    });
+});

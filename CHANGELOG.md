@@ -2,6 +2,103 @@
 
 All notable changes to the ClickHouse SQL Syntax extension will be documented in this file.
 
+## [1.5.0] - 2026-08-28
+
+The parser release. Language intelligence now runs on a real ClickHouse SQL parser and a
+scope binder instead of token heuristics, which is what makes the rest of this release
+possible: the extension can finally tell a table from a column from an alias, and knows
+what a CTE or subquery projects.
+
+### Added
+
+- **Error-tolerant recursive-descent parser** (`src/parser/`). It never throws and never
+  stops early: unparseable regions become error nodes and parsing resumes at the next
+  clause. A half-typed `SELECT a, FROM t WHERE` still yields a tree that knows the table
+  is `t`, which is what completion needs while you are still typing. Covers SELECT
+  (with CTEs, joins, ARRAY JOIN, window functions, set operations), INSERT, CREATE
+  TABLE/VIEW, ALTER and DROP, with a precedence-climbing expression parser.
+- **Scope binder**. Builds the scope tree — tables, aliases, CTEs, subquery projections,
+  ARRAY JOIN aliases, lambda parameters, named windows — and resolves names against it.
+  A FROM subquery and a CTE body are isolated from the query that uses them, while a
+  correlated subquery in WHERE still sees the outer tables.
+- **Lint rule engine**, replacing the fixed diagnostic list. Every finding carries a rule
+  id, gets a severity from `clickhouse.diagnostics.rules`, and links to its
+  documentation. 17 rules; `docs/rules.md` is generated from the registry by
+  `npm run docs:rules`, so the reference cannot drift.
+- **Inline rule suppression**, in the shape people already know:
+
+  ```sql
+  -- ch-lint-disable-next-line select-star
+  SELECT * FROM events;
+  SELECT * FROM events; -- ch-lint-disable-line select-star
+  -- ch-lint-disable unknown-table, missing-final
+  ```
+
+- **New rules the parser makes possible**: `syntax-error`, `unknown-column`,
+  `ambiguous-column`, `unknown-function` (version-aware), `aggregate-in-filter`
+  (an aggregate in WHERE/PREWHERE, which ClickHouse rejects), `final-on-plain-mergetree`,
+  `prewhere-on-non-mergetree` and `cross-join`. A column is never reported unknown while
+  any table in scope has unknown columns.
+- **Outline and breadcrumbs**: one entry per statement, CTEs nested under their query,
+  and every column under a `CREATE TABLE`.
+- **Folding** for statements, parenthesised blocks, block comments and runs of line
+  comments.
+- **Smart select** (`⌃⇧⌘→`) widening through the expression tree.
+- **Semantic highlighting**: tables, columns, aliases, CTEs, lambda parameters, settings
+  and column definitions each get their own scope — something a TextMate grammar
+  structurally cannot do, since it only sees words. System tables and catalog functions
+  are marked as library symbols.
+- **Go to definition, find references, rename and highlight** for the names a query
+  defines for itself — CTEs, table aliases, select-list aliases and lambda parameters.
+  Tables and columns jump to their entry in the schema file instead.
+- **Inlay hints** showing the type of each projected column, from the schema or the
+  `system` catalog. Nothing is annotated unless it resolves to exactly one known table.
+- **`clickhouse.format.maxLineWidth`** (default 100): long parenthesised argument and
+  `IN` lists break onto their own lines instead of running off the screen. Formatting
+  stays idempotent.
+- **Web build** (`dist/web/extension.js`): the extension now runs in vscode.dev and
+  github.dev. `Buffer` was the only Node-only dependency left and is gone.
+- **`ClickHouse: Show Lint Rules`**, listing every rule with its effective severity.
+
+### Changed
+
+- **Completion scope comes from the binder.** It now offers the columns a CTE or a
+  subquery projects — `WITH c AS (SELECT a, count() AS n FROM t) SELECT | FROM c` offers
+  `a` and `n` — and a FROM subquery no longer sees the enclosing query's tables. Clause
+  detection still comes from the token scan, which copes better with half-typed input.
+- Diagnostics are computed from one cached analysis per document revision rather than
+  re-scanning per feature.
+- The legacy `diagnostics.schemaValidation` / `bestPractices` / `settingsValidation`
+  toggles still work; they now switch off the corresponding rule groups.
+- Pure catalog helpers moved to `src/catalog/helpers.ts` so build scripts and lint rules
+  can use them without pulling in the extension host.
+
+### Fixed
+
+- The lexer read `t.1` as the number `.1`, so tuple element access parsed as a bare
+  identifier. A leading `.` now starts a number only when no value precedes it.
+- `LIMIT 3 BY user_id` did not recognise `BY` as a keyword, because the rule only looked
+  at the immediately preceding word.
+- `INSERT INTO t (a, b)` parsed the column list as a table function call.
+- A half-typed qualifier (`SELECT e. FROM t`) swallowed the following clause keyword as
+  part of the name, losing the FROM.
+
+### Not in this release
+
+- **The language server extraction is deliberately deferred.** The plan put the parser
+  behind an LSP, but every feature above depends on the parser and none depend on the
+  protocol: in-process is simpler to test, has no serialisation boundary, and the web
+  build already works without a second worker bundle. The parser and binder are
+  self-contained modules, so moving them behind a server later is mechanical.
+- **Function arity checking.** `system.functions` does not report arity, and deriving it
+  from signature strings with varargs and optional arguments would produce false
+  positives.
+
+### Infrastructure
+
+- Test suite grown to 529 tests; coverage 83%. Includes a parser fuzz test over random
+  token soup asserting it never throws and always terminates.
+
 ## [1.4.0] - 2026-08-28
 
 The catalog release. Everything the extension knows about the ClickHouse dialect is now

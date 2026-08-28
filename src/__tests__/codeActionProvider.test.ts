@@ -5,19 +5,26 @@ import * as vscode from 'vscode';
 import { computeCodeActions } from '../providers/codeActionProvider';
 import { computeDiagnostics } from '../providers/diagnosticProvider';
 import { SchemaManager } from '../schemaManager';
-import { makeSchemaManager, makeConfig, docAt, editsOf } from './helpers';
+import { makeSchemaManager, makeConfig, makeCatalog, docAt, editsOf } from './helpers';
+import { AnalysisCache } from '../analysis';
+import { Catalog } from '../catalog';
 
 let schemaManager: SchemaManager;
+let catalog: Catalog;
+let analysisCache: AnalysisCache;
 
 beforeAll(async () => {
     schemaManager = await makeSchemaManager();
+    catalog = makeCatalog();
+    await catalog.systemTables();
+    analysisCache = new AnalysisCache(schemaManager, catalog);
 });
 
 /** Code actions offered at the `|` marker, with real diagnostics in context. */
 function actionsAt(sql: string, overrides: Record<string, unknown> = {}) {
     const { document, position } = docAt(sql);
     const config = makeConfig(overrides);
-    const diagnostics = computeDiagnostics(document, schemaManager, config);
+    const diagnostics = computeDiagnostics(document, analysisCache, schemaManager, catalog, config);
     const range = new vscode.Range(position, position);
     const context = {
         diagnostics: diagnostics.filter(
@@ -35,7 +42,7 @@ function actionsAt(sql: string, overrides: Record<string, unknown> = {}) {
 function actionsWithAllDiagnostics(sql: string) {
     const { document, position } = docAt(sql);
     const config = makeConfig();
-    const diagnostics = computeDiagnostics(document, schemaManager, config);
+    const diagnostics = computeDiagnostics(document, analysisCache, schemaManager, catalog, config);
     const context = { diagnostics, only: undefined, triggerKind: 1 } as unknown as vscode.CodeActionContext;
     return computeCodeActions(document, new vscode.Range(position, position), context, schemaManager, config);
 }
@@ -45,7 +52,7 @@ describe('quick fixes', () => {
         const actions = actionsWithAllDiagnostics('SELECT |* FROM events');
         const action = actions.find(a => a.title.startsWith('Expand SELECT *'));
         expect(action).toBeDefined();
-        expect(editsOf(action!.edit)[0].newText).toBe('event_id, event_time, user_id');
+        expect(editsOf(action!.edit)[0].newText).toBe('event_id, event_time, user_id, tags');
         expect(action!.diagnostics).toHaveLength(1);
     });
 

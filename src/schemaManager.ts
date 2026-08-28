@@ -120,7 +120,7 @@ export class SchemaManager implements vscode.Disposable {
                 let parsed: unknown;
                 try {
                     const content = await vscode.workspace.fs.readFile(uri);
-                    parsed = JSON.parse(Buffer.from(content).toString('utf8'));
+                    parsed = JSON.parse(new TextDecoder().decode(content));
                 } catch (err) {
                     issues.push({ file: uri.fsPath, path: '', message: `Could not read or parse: ${describe(err)}` });
                     continue;

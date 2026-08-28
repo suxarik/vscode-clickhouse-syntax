@@ -29,8 +29,17 @@ function toWorkspaceEdit(document: vscode.TextDocument, edit: TextEdit): vscode.
     return workspaceEdit;
 }
 
-function ourDiagnostics(context: vscode.CodeActionContext, code: string): vscode.Diagnostic[] {
-    return context.diagnostics.filter(d => d.source === DIAGNOSTIC_SOURCE && d.code === code);
+/** Rule id of a diagnostic, which may carry a documentation link. */
+function ruleIdOf(diagnostic: vscode.Diagnostic): string | undefined {
+    const code = diagnostic.code;
+    if (typeof code === 'string') return code;
+    if (typeof code === 'number') return String(code);
+    if (code && typeof code === 'object' && 'value' in code) return String(code.value);
+    return undefined;
+}
+
+function ourDiagnostics(context: vscode.CodeActionContext, ruleId: string): vscode.Diagnostic[] {
+    return context.diagnostics.filter(d => d.source === DIAGNOSTIC_SOURCE && ruleIdOf(d) === ruleId);
 }
 
 export function computeCodeActions(
@@ -50,7 +59,7 @@ export function computeCodeActions(
 
     // ── Quick fix: expand SELECT * ──
     if (quickFixes) {
-        for (const diagnostic of ourDiagnostics(context, 'best-practice-select-star')) {
+        for (const diagnostic of ourDiagnostics(context, 'select-star')) {
             const target = findSelectStarTarget(text, document.offsetAt(diagnostic.range.start));
             if (!target?.table) continue;
             const found = schemaManager.findTable(target.table.table, target.table.database);

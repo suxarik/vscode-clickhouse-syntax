@@ -20,28 +20,37 @@ const problemMatcher = {
     },
 };
 
+/** Shared between the desktop and web builds. */
+const common = {
+    entryPoints: ['src/extension.ts'],
+    bundle: true,
+    format: 'cjs',
+    minify: production,
+    sourcemap: !production,
+    sourcesContent: false,
+    // Provided by the VS Code extension host, never bundled.
+    external: ['vscode'],
+    logLevel: 'silent',
+    plugins: [problemMatcher],
+};
+
 async function main() {
-    const context = await esbuild.context({
-        entryPoints: ['src/extension.ts'],
-        bundle: true,
-        format: 'cjs',
-        minify: production,
-        sourcemap: !production,
-        sourcesContent: false,
-        platform: 'node',
-        target: 'node16',
-        outfile: 'dist/extension.js',
-        // Provided by the VS Code extension host, never bundled.
-        external: ['vscode'],
-        logLevel: 'silent',
-        plugins: [problemMatcher],
-    });
+    const contexts = await Promise.all([
+        esbuild.context({ ...common, platform: 'node', target: 'node16', outfile: 'dist/extension.js' }),
+        // The web build runs in a browser worker: no Node built-ins available.
+        esbuild.context({
+            ...common,
+            platform: 'browser',
+            target: 'es2022',
+            outfile: 'dist/web/extension.js',
+        }),
+    ]);
 
     if (watch) {
-        await context.watch();
+        await Promise.all(contexts.map(context => context.watch()));
     } else {
-        await context.rebuild();
-        await context.dispose();
+        await Promise.all(contexts.map(context => context.rebuild()));
+        await Promise.all(contexts.map(context => context.dispose()));
     }
 }
 

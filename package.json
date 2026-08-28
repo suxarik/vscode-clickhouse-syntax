@@ -2,7 +2,7 @@
   "name": "clickhouse-syntax",
   "displayName": "ClickHouse SQL Syntax",
   "description": "ClickHouse SQL for VS Code: dialect-aware syntax highlighting, schema-aware IntelliSense, diagnostics, quick fixes and a formatter that never rewrites your identifiers.",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "publisher": "SuXarikisme",
   "icon": "images/clickhouse.png",
   "engines": {
@@ -43,6 +43,7 @@
     "onLanguage:clickhouse"
   ],
   "main": "./dist/extension.js",
+  "browser": "./dist/web/extension.js",
   "contributes": {
     "languages": [
       {
@@ -100,6 +101,11 @@
         "command": "clickhouse.showCatalogInfo",
         "title": "Show Catalog Info",
         "category": "ClickHouse"
+      },
+      {
+        "command": "clickhouse.showLintRules",
+        "title": "Show Lint Rules",
+        "category": "ClickHouse"
       }
     ],
     "menus": {
@@ -137,6 +143,10 @@
         },
         {
           "command": "clickhouse.showCatalogInfo",
+          "when": "true"
+        },
+        {
+          "command": "clickhouse.showLintRules",
           "when": "true"
         }
       ]
@@ -359,6 +369,42 @@
           "type": "boolean",
           "default": true,
           "description": "Validate names, tiers and value types inside SETTINGS clauses against the catalog."
+        },
+        "clickhouse.diagnostics.rules": {
+          "type": "object",
+          "default": {},
+          "additionalProperties": {
+            "type": "string",
+            "enum": [
+              "off",
+              "hint",
+              "info",
+              "warning",
+              "error"
+            ]
+          },
+          "markdownDescription": "Severity per lint rule, e.g. `{ \"select-star\": \"off\", \"unknown-column\": \"error\" }`. Run **ClickHouse: Show Lint Rules** for the full list."
+        },
+        "clickhouse.diagnostics.syntaxErrors": {
+          "type": "boolean",
+          "default": true,
+          "description": "Report statements that cannot be parsed."
+        },
+        "clickhouse.semanticHighlighting.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Colour tables, columns, aliases and lambda parameters from the parse tree."
+        },
+        "clickhouse.inlayHints.columnTypes": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the data type after each projected column."
+        },
+        "clickhouse.format.maxLineWidth": {
+          "type": "number",
+          "default": 100,
+          "minimum": 0,
+          "description": "Break long parenthesised lists that would run past this column. 0 keeps them on one line."
         }
       }
     }
@@ -376,7 +422,8 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
-    "catalog": "node scripts/generate-catalog.mjs"
+    "catalog": "node scripts/generate-catalog.mjs",
+    "docs:rules": "npm run compile && node scripts/generate-rule-docs.mjs"
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",

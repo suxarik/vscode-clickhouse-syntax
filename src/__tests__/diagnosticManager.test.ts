@@ -4,7 +4,9 @@
 import * as vscode from 'vscode';
 import { DiagnosticManager } from '../providers/diagnosticProvider';
 import { SchemaManager } from '../schemaManager';
-import { makeSchemaManager, docAt } from './helpers';
+import { makeSchemaManager, makeCatalog, docAt } from './helpers';
+import { AnalysisCache } from '../analysis';
+import { Catalog } from '../catalog';
 
 /** The mock document's version is writable; the public type says otherwise. */
 function setVersion(document: vscode.TextDocument, version: number): void {
@@ -12,10 +14,22 @@ function setVersion(document: vscode.TextDocument, version: number): void {
 }
 
 let schemaManager: SchemaManager;
+let catalog: Catalog;
 
 beforeAll(async () => {
     schemaManager = await makeSchemaManager();
+    catalog = makeCatalog();
 });
+
+/** A manager wired to a fresh analysis cache. */
+function makeManager(collection: FakeCollection): DiagnosticManager {
+    return new DiagnosticManager(
+        collection as unknown as vscode.DiagnosticCollection,
+        new AnalysisCache(schemaManager, catalog),
+        schemaManager,
+        catalog
+    );
+}
 
 interface FakeCollection {
     set: jest.Mock;
@@ -38,7 +52,7 @@ afterEach(() => {
 describe('DiagnosticManager', () => {
     it('waits for the debounce before analysing', () => {
         const collection = makeCollection();
-        const manager = new DiagnosticManager(collection as unknown as vscode.DiagnosticCollection, schemaManager);
+        const manager = makeManager(collection);
         const { document } = docAt('SELECT * FROM ghosts');
 
         manager.schedule(document);
@@ -51,7 +65,7 @@ describe('DiagnosticManager', () => {
 
     it('collapses a burst of edits into one run', () => {
         const collection = makeCollection();
-        const manager = new DiagnosticManager(collection as unknown as vscode.DiagnosticCollection, schemaManager);
+        const manager = makeManager(collection);
         const { document } = docAt('SELECT * FROM ghosts');
 
         for (let i = 0; i < 10; i++) {
@@ -68,7 +82,7 @@ describe('DiagnosticManager', () => {
 
     it('drops a run that a newer edit has superseded', () => {
         const collection = makeCollection();
-        const manager = new DiagnosticManager(collection as unknown as vscode.DiagnosticCollection, schemaManager);
+        const manager = makeManager(collection);
         const { document } = docAt('SELECT * FROM ghosts');
 
         manager.schedule(document);
@@ -81,7 +95,7 @@ describe('DiagnosticManager', () => {
 
     it('clears diagnostics for a closed document', () => {
         const collection = makeCollection();
-        const manager = new DiagnosticManager(collection as unknown as vscode.DiagnosticCollection, schemaManager);
+        const manager = makeManager(collection);
         const { document } = docAt('SELECT * FROM ghosts');
 
         manager.schedule(document);
@@ -95,7 +109,7 @@ describe('DiagnosticManager', () => {
 
     it('cancels pending work on dispose', () => {
         const collection = makeCollection();
-        const manager = new DiagnosticManager(collection as unknown as vscode.DiagnosticCollection, schemaManager);
+        const manager = makeManager(collection);
         const { document } = docAt('SELECT * FROM ghosts');
 
         manager.schedule(document);
@@ -107,7 +121,7 @@ describe('DiagnosticManager', () => {
 
     it('runs immediately when asked to', () => {
         const collection = makeCollection();
-        const manager = new DiagnosticManager(collection as unknown as vscode.DiagnosticCollection, schemaManager);
+        const manager = makeManager(collection);
         const { document } = docAt('SELECT * FROM ghosts');
 
         manager.run(document);

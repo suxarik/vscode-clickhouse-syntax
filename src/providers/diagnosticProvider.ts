@@ -1,23 +1,16 @@
 /**
  * Diagnostics for ClickHouse SQL.
  *
- * Analysis is debounced and cancellable, runs per statement rather than per
- * document, and locates findings through the tokenizer so nothing fires from
- * inside a string literal or a comment.
+ * Findings come from the lint rules, which read the parse tree and the bound
+ * scopes rather than scanning text. Analysis is debounced and cancellable, and
+ * every diagnostic carries its rule id so it can be configured, silenced with an
+ * inline comment, or matched by a quick fix.
  */
 import * as vscode from 'vscode';
 import { SchemaManager } from '../schemaManager';
-import {
-    extractTableReferences,
-    extractCteNames,
-    findKeywordOccurrences,
-    findSelectStar,
-    findSettingReferences,
-    hasClause,
-    splitStatements,
-    TableRef,
-} from '../sqlContext';
 import { Catalog } from '../catalog';
+import { AnalysisCache } from '../analysis';
+import { lint, LintFinding, ruleDocsUrl, Severity } from '../lint/engine';
 
 export const DIAGNOSTIC_SOURCE = 'clickhouse';
 
@@ -25,237 +18,66 @@ export function createDiagnosticCollection(): vscode.DiagnosticCollection {
     return vscode.languages.createDiagnosticCollection('clickhouse');
 }
 
-function makeDiagnostic(
-    document: vscode.TextDocument,
-    start: number,
-    end: number,
-    message: string,
-    severity: vscode.DiagnosticSeverity,
-    code: string
-): vscode.Diagnostic {
-    const range = new vscode.Range(document.positionAt(start), document.positionAt(end));
-    const diagnostic = new vscode.Diagnostic(range, message, severity);
-    diagnostic.code = code;
+const SEVERITY_MAP: Record<Exclude<Severity, 'off'>, vscode.DiagnosticSeverity> = {
+    error: vscode.DiagnosticSeverity.Error,
+    warning: vscode.DiagnosticSeverity.Warning,
+    info: vscode.DiagnosticSeverity.Information,
+    hint: vscode.DiagnosticSeverity.Hint,
+};
+
+function toDiagnostic(document: vscode.TextDocument, finding: LintFinding): vscode.Diagnostic {
+    const range = new vscode.Range(document.positionAt(finding.start), document.positionAt(finding.end));
+    const diagnostic = new vscode.Diagnostic(range, finding.message, SEVERITY_MAP[finding.severity]);
     diagnostic.source = DIAGNOSTIC_SOURCE;
+    diagnostic.code = {
+        value: finding.ruleId,
+        target: vscode.Uri.parse(ruleDocsUrl(finding.ruleId)),
+    };
     return diagnostic;
 }
 
-/** True when a reference resolves to something other than a schema table. */
-function isLocalName(ref: TableRef, ctes: Set<string>, aliases: Set<string>): boolean {
-    return ctes.has(ref.table) || aliases.has(ref.table);
-}
+/** Legacy severity toggles, expressed as rule overrides. */
+function severitiesFrom(config: vscode.WorkspaceConfiguration): Record<string, string> {
+    const configured = { ...config.get<Record<string, string>>('diagnostics.rules', {}) };
 
-/**
- * ClickHouse setting types are semantic, not just primitives: `MaxThreads`,
- * `Milliseconds`, `NonZeroUInt64`, `BoolAuto` and a long tail of enums. Only the
- * families we can judge confidently are checked; everything else passes.
- */
-const NUMERIC_SETTING_TYPES = new Set([
-    'uint64', 'int64', 'int32', 'uint32', 'float', 'double', 'milliseconds',
-    'seconds', 'nonzerouint64', 'maxthreads',
-]);
-
-/** Numeric settings that also accept the literal `auto`. */
-const AUTO_SETTING_TYPES = new Set(['uint64auto', 'floatauto', 'boolauto']);
-
-const STRING_SETTING_TYPES = new Set(['string', 'char', 'map']);
-
-/** Whether a literal is plausible for a setting's declared type. */
-function valueFitsType(type: string, kind: string | undefined, value: string | undefined): boolean {
-    if (!kind || value === undefined) return true;
-    const normalized = type.toLowerCase();
-    const bare = value.replace(/^'|'$/g, '');
-
-    if (AUTO_SETTING_TYPES.has(normalized) && bare.toLowerCase() === 'auto') return true;
-
-    if (normalized === 'bool' || normalized === 'boolauto') {
-        if (kind === 'number') return bare === '0' || bare === '1';
-        return ['true', 'false'].includes(bare.toLowerCase());
+    if (!config.get<boolean>('diagnostics.schemaValidation', true)) {
+        for (const rule of ['unknown-table', 'unknown-column', 'ambiguous-column']) {
+            configured[rule] = configured[rule] ?? 'off';
+        }
     }
-
-    if (NUMERIC_SETTING_TYPES.has(normalized) || AUTO_SETTING_TYPES.has(normalized)) {
-        // Sized literals such as '10G' and '500ms' are written as strings.
-        return kind === 'number' || /^\d/.test(bare);
+    if (!config.get<boolean>('diagnostics.bestPractices', true)) {
+        for (const rule of [
+            'select-star', 'missing-final', 'final-on-plain-mergetree', 'prewhere-on-non-mergetree',
+            'inefficient-not-in', 'unbounded-limit', 'or-index-inefficiency', 'cross-join',
+        ]) {
+            configured[rule] = configured[rule] ?? 'off';
+        }
     }
-
-    if (STRING_SETTING_TYPES.has(normalized)) return kind === 'string';
-
-    // Enum-valued and unrecognised types: not enough information to judge.
-    return true;
+    if (!config.get<boolean>('diagnostics.settingsValidation', true)) {
+        for (const rule of ['unknown-setting', 'experimental-setting', 'setting-type-mismatch']) {
+            configured[rule] = configured[rule] ?? 'off';
+        }
+    }
+    if (!config.get<boolean>('diagnostics.syntaxErrors', true)) {
+        configured['syntax-error'] = configured['syntax-error'] ?? 'off';
+    }
+    return configured;
 }
 
 export function computeDiagnostics(
     document: vscode.TextDocument,
+    analysisCache: AnalysisCache,
     schemaManager: SchemaManager,
-    config: vscode.WorkspaceConfiguration,
-    catalog?: Catalog
+    catalog: Catalog,
+    config: vscode.WorkspaceConfiguration
 ): vscode.Diagnostic[] {
-    const diagnostics: vscode.Diagnostic[] = [];
-    const text = document.getText();
-    const schema = schemaManager.getSchema();
-    const schemaValidation = config.get<boolean>('diagnostics.schemaValidation', true);
-    const bestPractices = config.get<boolean>('diagnostics.bestPractices', true);
-
-    for (const statement of splitStatements(text)) {
-        const base = statement.start;
-        const body = statement.text;
-        const ctes = new Set(extractCteNames(body));
-        const refs = extractTableReferences(body);
-        const aliases = new Set(refs.map(r => r.alias).filter((a): a is string => !!a));
-
-        // ── Unknown tables ──
-        if (schemaValidation && schema) {
-            for (const ref of refs) {
-                if (isLocalName(ref, ctes, aliases)) continue;
-                if (schemaManager.findTable(ref.table, ref.database)) continue;
-                diagnostics.push(
-                    makeDiagnostic(
-                        document,
-                        base + ref.start,
-                        base + ref.start + ref.fullRef.length,
-                        `Table '${ref.fullRef}' not found in schema`,
-                        vscode.DiagnosticSeverity.Warning,
-                        'unknown-table'
-                    )
-                );
-            }
-        }
-
-        // ── SETTINGS ──
-        if (catalog && config.get<boolean>('diagnostics.settingsValidation', true)) {
-            for (const ref of findSettingReferences(body)) {
-                const setting = catalog.settingByName(ref.name);
-                if (!setting) {
-                    diagnostics.push(
-                        makeDiagnostic(
-                            document,
-                            base + ref.start,
-                            base + ref.end,
-                            `Unknown setting '${ref.name}' (catalog: ClickHouse ${catalog.version})`,
-                            vscode.DiagnosticSeverity.Warning,
-                            'unknown-setting'
-                        )
-                    );
-                    continue;
-                }
-                if (setting.tier) {
-                    diagnostics.push(
-                        makeDiagnostic(
-                            document,
-                            base + ref.start,
-                            base + ref.end,
-                            `'${setting.name}' is ${setting.tier.toLowerCase()} and may change or be removed.`,
-                            vscode.DiagnosticSeverity.Information,
-                            'experimental-setting'
-                        )
-                    );
-                }
-                if (
-                    ref.valueStart !== undefined &&
-                    ref.valueEnd !== undefined &&
-                    !valueFitsType(setting.type, ref.valueKind, ref.value)
-                ) {
-                    diagnostics.push(
-                        makeDiagnostic(
-                            document,
-                            base + ref.valueStart,
-                            base + ref.valueEnd,
-                            `'${setting.name}' expects ${setting.type}, got ${ref.value}`,
-                            vscode.DiagnosticSeverity.Warning,
-                            'setting-type-mismatch'
-                        )
-                    );
-                }
-            }
-        }
-
-        if (!bestPractices) continue;
-
-        // ── SELECT * ──
-        for (const hit of findSelectStar(body)) {
-            diagnostics.push(
-                makeDiagnostic(
-                    document,
-                    base + hit.start,
-                    base + hit.end,
-                    'Consider explicitly listing columns instead of SELECT *',
-                    vscode.DiagnosticSeverity.Information,
-                    'best-practice-select-star'
-                )
-            );
-        }
-
-        // ── Missing FINAL on a deduplicating engine ──
-        if (schema) {
-            const hasFinal = hasClause(body, 'FINAL');
-            for (const ref of refs) {
-                if (isLocalName(ref, ctes, aliases)) continue;
-                const engine = schemaManager.getEngine(ref.table, ref.database);
-                if (!engine || !/(Replacing|Collapsing|VersionedCollapsing)MergeTree/i.test(engine)) continue;
-                if (hasFinal) continue;
-                diagnostics.push(
-                    makeDiagnostic(
-                        document,
-                        base + ref.start,
-                        base + ref.start + ref.fullRef.length,
-                        `${ref.fullRef} uses ${engine}. Consider adding FINAL to deduplicate rows.`,
-                        vscode.DiagnosticSeverity.Information,
-                        'missing-final'
-                    )
-                );
-            }
-        }
-
-        // ── NOT IN ──
-        for (const hit of findKeywordOccurrences(body, 'NOT IN')) {
-            diagnostics.push(
-                makeDiagnostic(
-                    document,
-                    base + hit.start,
-                    base + hit.end,
-                    'NOT IN can be slow with large subqueries. Consider LEFT JOIN / IS NULL or NOT EXISTS instead.',
-                    vscode.DiagnosticSeverity.Information,
-                    'inefficient-not-in'
-                )
-            );
-        }
-
-        // ── LIMIT without ORDER BY ──
-        const limits = findKeywordOccurrences(body, 'LIMIT');
-        if (limits.length > 0 && !hasClause(body, 'ORDER BY')) {
-            const hit = limits[0];
-            diagnostics.push(
-                makeDiagnostic(
-                    document,
-                    base + hit.start,
-                    base + hit.end,
-                    'LIMIT without ORDER BY returns non-deterministic results.',
-                    vscode.DiagnosticSeverity.Information,
-                    'unbounded-limit'
-                )
-            );
-        }
-
-        // ── OR in a filter ──
-        if (hasClause(body, 'WHERE')) {
-            const whereAt = findKeywordOccurrences(body, 'WHERE')[0];
-            const or = findKeywordOccurrences(body, 'OR').find(hit => hit.start > whereAt.start);
-            if (or) {
-                diagnostics.push(
-                    makeDiagnostic(
-                        document,
-                        base + or.start,
-                        base + or.end,
-                        'OR conditions on different columns can prevent index usage. Consider UNION ALL if possible.',
-                        vscode.DiagnosticSeverity.Information,
-                        'or-index-inefficiency'
-                    )
-                );
-            }
-        }
-    }
-
-    return diagnostics;
+    const analysis = analysisCache.get(document);
+    const serverVersion = config.get<string>('serverVersion', 'auto');
+    const findings = lint(analysis, schemaManager, catalog, {
+        severities: severitiesFrom(config),
+        serverVersion: serverVersion === 'auto' ? undefined : serverVersion,
+    });
+    return findings.map(finding => toDiagnostic(document, finding));
 }
 
 /**
@@ -268,8 +90,9 @@ export class DiagnosticManager implements vscode.Disposable {
 
     constructor(
         private readonly collection: vscode.DiagnosticCollection,
+        private readonly analysisCache: AnalysisCache,
         private readonly schemaManager: SchemaManager,
-        private readonly catalog?: Catalog
+        private readonly catalog: Catalog
     ) {}
 
     private get debounceMs(): number {
@@ -306,7 +129,7 @@ export class DiagnosticManager implements vscode.Disposable {
         try {
             this.collection.set(
                 document.uri,
-                computeDiagnostics(document, this.schemaManager, config, this.catalog)
+                computeDiagnostics(document, this.analysisCache, this.schemaManager, this.catalog, config)
             );
         } catch (err) {
             console.error('ClickHouse: diagnostics failed', err);
@@ -320,6 +143,7 @@ export class DiagnosticManager implements vscode.Disposable {
         if (timer) clearTimeout(timer);
         this.timers.delete(key);
         this.versions.delete(key);
+        this.analysisCache.forget(document);
         this.collection.delete(document.uri);
     }
 

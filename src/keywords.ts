@@ -206,7 +206,11 @@ function classify(tokens: Token[], sig: number[], j: number, state: CaseState): 
     }
 
     // GROUP BY / ORDER BY / PARTITION BY / SAMPLE BY / LIMIT BY
-    if (upper === 'BY') return prev && prev.kind === TokenKind.Word && BY_HEADS.has(prev.upper) ? 1 : 0;
+    if (upper === 'BY') {
+        if (prev && prev.kind === TokenKind.Word && BY_HEADS.has(prev.upper)) return 1;
+        // `LIMIT 3 BY user_id` puts an expression between LIMIT and BY.
+        return precededByLimit(tokens, sig, j) ? 1 : 0;
+    }
     if (BY_HEADS.has(upper) && next && next.kind === TokenKind.Word && next.upper === 'BY') return 1;
 
     // END only closes a CASE.
@@ -252,6 +256,30 @@ function classify(tokens: Token[], sig: number[], j: number, state: CaseState): 
     }
 
     return 0;
+}
+
+/**
+ * Scan back for a `LIMIT` that this `BY` belongs to, stopping at anything that
+ * would mean we have left the LIMIT clause.
+ */
+function precededByLimit(tokens: Token[], sig: number[], j: number): boolean {
+    let depth = 0;
+    for (let k = j - 1; k >= 0 && j - k <= 12; k--) {
+        const t = tokens[sig[k]];
+        if (t.kind === TokenKind.Punct) {
+            if (t.text === ')' || t.text === ']') depth++;
+            else if (t.text === '(' || t.text === '[') {
+                if (depth === 0) return false;
+                depth--;
+            } else if (t.text === ';' && depth === 0) return false;
+            continue;
+        }
+        if (depth !== 0) continue;
+        if (t.kind !== TokenKind.Word) continue;
+        if (t.upper === 'LIMIT') return true;
+        if (BY_HEADS.has(t.upper) || RESERVED.has(t.upper)) return false;
+    }
+    return false;
 }
 
 /**

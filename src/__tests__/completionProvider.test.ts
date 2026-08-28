@@ -7,13 +7,18 @@ import { getSqlContextFromText, isAfterDot } from '../sqlContext';
 import { SchemaManager } from '../schemaManager';
 import { Catalog } from '../catalog';
 import { makeSchemaManager, makeConfig, makeCatalog, docAt } from './helpers';
+import { AnalysisCache } from '../analysis';
+import { scopeAt, visibleCtes, visibleTables } from '../parser/binder';
 
 let schemaManager: SchemaManager;
 let catalog: Catalog;
+let analysisCache: AnalysisCache;
 
 beforeAll(async () => {
     schemaManager = await makeSchemaManager();
     catalog = makeCatalog();
+    await catalog.systemTables();
+    analysisCache = new AnalysisCache(schemaManager, catalog);
 });
 
 /** Completion items offered at the `|` marker. */
@@ -21,7 +26,16 @@ async function itemsAt(sql: string, overrides: Record<string, unknown> = {}): Pr
     const { document, offset, position } = docAt(sql);
     const context = getSqlContextFromText(document.getText(), offset);
     const dot = isAfterDot(document, position);
-    return buildCompletions(context, dot, schemaManager, catalog, makeConfig(overrides));
+    const scope = scopeAt(analysisCache.get(document).binding, offset);
+    return buildCompletions(
+        context,
+        dot,
+        schemaManager,
+        catalog,
+        makeConfig(overrides),
+        visibleTables(scope),
+        visibleCtes(scope).map(cte => cte.name.name)
+    );
 }
 
 async function labelsAt(sql: string, overrides: Record<string, unknown> = {}): Promise<string[]> {
@@ -86,6 +100,32 @@ describe('qualified prefixes', () => {
 
     it('offers CTE names as tables', async () => {
         expect(await labelsAt('WITH recent AS (SELECT 1) SELECT * FROM |')).toContain('recent');
+    });
+
+    it('offers the columns a CTE projects', async () => {
+        const labels = await labelsAt(
+            'WITH recent AS (SELECT event_id, count() AS n FROM events) SELECT | FROM recent'
+        );
+        expect(labels).toContain('event_id');
+        expect(labels).toContain('n');
+        // `name` belongs to users, which is not in scope here.
+        expect(labels).not.toContain('name');
+    });
+
+    it('offers the columns a subquery projects', async () => {
+        const labels = await labelsAt('SELECT | FROM (SELECT user_id AS uid FROM users) s');
+        expect(labels).toContain('uid');
+    });
+
+    it('resolves a qualifier onto a CTE', async () => {
+        const labels = await labelsAt('WITH c AS (SELECT event_id FROM events) SELECT c.| FROM c');
+        expect(labels).toEqual(['event_id']);
+    });
+
+    it('does not leak the outer query into a FROM subquery', async () => {
+        const labels = await labelsAt('SELECT a FROM (SELECT | FROM users) s');
+        expect(labels).toContain('name');
+        expect(labels).not.toContain('event_time');
     });
 });
 

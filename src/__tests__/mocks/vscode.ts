@@ -115,6 +115,87 @@ export class Range {
     get isEmpty(): boolean {
         return this.start.line === this.end.line && this.start.character === this.end.character;
     }
+    isEqual(other: Range): boolean {
+        return comparePositions(this.start, other.start) === 0 && comparePositions(this.end, other.end) === 0;
+    }
+    contains(other: Range | Position): boolean {
+        const start = other instanceof Range ? other.start : other;
+        const end = other instanceof Range ? other.end : other;
+        return comparePositions(this.start, start) <= 0 && comparePositions(this.end, end) >= 0;
+    }
+}
+
+function comparePositions(a: Position, b: Position): number {
+    return a.line - b.line || a.character - b.character;
+}
+
+export const SymbolKind = {
+    File: 0, Module: 1, Namespace: 2, Package: 3, Class: 4, Method: 5, Property: 6,
+    Field: 7, Constructor: 8, Enum: 9, Interface: 10, Function: 11, Variable: 12,
+    Constant: 13, String: 14, Number: 15, Boolean: 16, Array: 17, Object: 18,
+    Key: 19, Null: 20, EnumMember: 21, Struct: 22, Event: 23, Operator: 24,
+    TypeParameter: 25,
+};
+
+export class DocumentSymbol {
+    children: DocumentSymbol[] = [];
+    constructor(
+        public name: string,
+        public detail: string,
+        public kind: number,
+        public range: Range,
+        public selectionRange: Range
+    ) {}
+}
+
+export const FoldingRangeKind = { Comment: 1, Imports: 2, Region: 3 };
+
+export class FoldingRange {
+    constructor(public start: number, public end: number, public kind?: number) {}
+}
+
+export class SelectionRange {
+    constructor(public range: Range, public parent?: SelectionRange) {}
+}
+
+export class Location {
+    constructor(public uri: Uri, public range: Range) {}
+}
+
+export const DocumentHighlightKind = { Text: 0, Read: 1, Write: 2 };
+
+export class DocumentHighlight {
+    constructor(public range: Range, public kind?: number) {}
+}
+
+export const InlayHintKind = { Type: 1, Parameter: 2 };
+
+export class InlayHint {
+    paddingLeft = false;
+    paddingRight = false;
+    constructor(public position: Position, public label: string, public kind?: number) {}
+}
+
+export class SemanticTokensLegend {
+    constructor(public tokenTypes: string[], public tokenModifiers: string[]) {}
+}
+
+export class SemanticTokens {
+    constructor(public data: Uint32Array) {}
+}
+
+/** Records pushes rather than encoding them, so tests can read them back. */
+export class SemanticTokensBuilder {
+    pushed: Array<{ line: number; char: number; length: number; type: number; modifiers: number }> = [];
+    constructor(public legend?: SemanticTokensLegend) {}
+    push(line: number, char: number, length: number, type: number, modifiers: number): void {
+        this.pushed.push({ line, char, length, type, modifiers });
+    }
+    build(): SemanticTokens {
+        const tokens = new SemanticTokens(new Uint32Array(this.pushed.length * 5));
+        (tokens as unknown as { pushed: unknown }).pushed = this.pushed;
+        return tokens;
+    }
 }
 
 export class Selection extends Range {}
@@ -265,6 +346,15 @@ export const languages = {
     registerCodeActionsProvider: jest.fn(disposable),
     registerDocumentFormattingEditProvider: jest.fn(disposable),
     registerDocumentRangeFormattingEditProvider: jest.fn(disposable),
+    registerDocumentSymbolProvider: jest.fn(disposable),
+    registerFoldingRangeProvider: jest.fn(disposable),
+    registerSelectionRangeProvider: jest.fn(disposable),
+    registerDocumentSemanticTokensProvider: jest.fn(disposable),
+    registerDefinitionProvider: jest.fn(disposable),
+    registerReferenceProvider: jest.fn(disposable),
+    registerRenameProvider: jest.fn(disposable),
+    registerDocumentHighlightProvider: jest.fn(disposable),
+    registerInlayHintsProvider: jest.fn(disposable),
     createDiagnosticCollection: jest.fn(() => ({
         set: jest.fn(),
         delete: jest.fn(),

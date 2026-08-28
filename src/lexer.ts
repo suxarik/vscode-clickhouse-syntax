@@ -133,8 +133,18 @@ export function tokenize(text: string): Token[] {
         });
     };
 
+    /** Last significant token, to tell `.5` from the `.1` in `t.1`. */
+    let lastSignificant: Token | undefined;
+    const pushed = () => {
+        for (let k = tokens.length - 1; k >= 0; k--) {
+            if (!isTrivia(tokens[k])) return tokens[k];
+        }
+        return undefined;
+    };
+
     while (i < n) {
         const c = text[i];
+        lastSignificant = pushed();
 
         if (c === ' ' || c === '\t' || c === '\n' || c === '\r' || c === '\f' || c === '\v') {
             const start = i;
@@ -199,7 +209,21 @@ export function tokenize(text: string): Token[] {
             }
         }
 
-        if (isDigit(c) || (c === '.' && isDigit(text[i + 1] ?? ''))) {
+        // A leading `.` starts a number only when no value precedes it; after an
+        // identifier, `)` or `]` the dot is an accessor, as in `tup.1`.
+        const dotStartsNumber =
+            c === '.' &&
+            isDigit(text[i + 1] ?? '') &&
+            !(
+                lastSignificant &&
+                (lastSignificant.kind === TokenKind.Word ||
+                    lastSignificant.kind === TokenKind.BacktickIdent ||
+                    lastSignificant.kind === TokenKind.QuotedIdent ||
+                    (lastSignificant.kind === TokenKind.Punct &&
+                        (lastSignificant.text === ')' || lastSignificant.text === ']')))
+            );
+
+        if (isDigit(c) || dotStartsNumber) {
             const start = i;
             i = readNumber(text, i);
             push(TokenKind.Number, start, i);
