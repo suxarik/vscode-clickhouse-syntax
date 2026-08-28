@@ -36,7 +36,17 @@ const common = {
 
 async function main() {
     const contexts = await Promise.all([
-        esbuild.context({ ...common, platform: 'node', target: 'node16', outfile: 'dist/extension.js' }),
+        esbuild.context({ ...common, platform: 'node', target: 'node18', outfile: 'dist/extension.js' }),
+        // The result grid runs inside a webview, and later a notebook renderer.
+        esbuild.context({
+            ...common,
+            entryPoints: ['src/results/view/webviewEntry.ts'],
+            format: 'iife',
+            platform: 'browser',
+            target: 'es2022',
+            external: [],
+            outfile: 'dist/results.js',
+        }),
         // The web build runs in a browser worker: no Node built-ins available.
         esbuild.context({
             ...common,

@@ -25,8 +25,14 @@ interface TableEntry {
     table: SchemaTable;
 }
 
+export type SchemaSource = 'connection' | 'file' | 'both';
+
 export class SchemaManager implements vscode.Disposable {
     private schema: ClickHouseSchema | null = null;
+    /** Schema read from the JSON file(s). */
+    private fileSchema: ClickHouseSchema | null = null;
+    /** Schema introspected from a live server. */
+    private liveSchema: ClickHouseSchema | null = null;
     private issues: SchemaValidationIssue[] = [];
     private loadedFiles: string[] = [];
     private disposables: vscode.Disposable[] = [];
@@ -65,6 +71,10 @@ export class SchemaManager implements vscode.Disposable {
 
         this.disposables.push(
             vscode.workspace.onDidChangeConfiguration(e => {
+                if (e.affectsConfiguration('clickhouse.schema.source')) {
+                    this.recompute();
+                    return;
+                }
                 if (e.affectsConfiguration('clickhouse.schema')) {
                     this.reset();
                     void this.loadSchema();
@@ -143,9 +153,50 @@ export class SchemaManager implements vscode.Disposable {
     }
 
     private setSchema(schema: ClickHouseSchema | null, files: string[], issues: SchemaValidationIssue[]): void {
-        this.schema = schema;
+        this.fileSchema = schema;
         this.loadedFiles = files;
         this.issues = issues;
+        this.recompute();
+    }
+
+    /**
+     * Install a schema read from a live server, or clear it.
+     *
+     * The live schema is what queries will actually run against, so where both
+     * describe the same table the live one wins; the file fills the gaps, which
+     * is what makes it useful for tables that do not exist yet.
+     */
+    setLiveSchema(schema: ClickHouseSchema | null): void {
+        this.liveSchema = schema;
+        this.recompute();
+    }
+
+    getLiveSchema(): ClickHouseSchema | null {
+        return this.liveSchema;
+    }
+
+    private schemaSource(): SchemaSource {
+        return vscode.workspace.getConfiguration('clickhouse').get<SchemaSource>('schema.source', 'both');
+    }
+
+    private recompute(): void {
+        const source = this.schemaSource();
+        const live = source === 'file' ? null : this.liveSchema;
+        const file = source === 'connection' ? null : this.fileSchema;
+
+        if (!live && !file) {
+            this.schema = null;
+        } else if (!live) {
+            this.schema = file;
+        } else if (!file) {
+            this.schema = live;
+        } else {
+            const merged: ClickHouseSchema = { version: '1.0', databases: [] };
+            mergeInto(merged, live, '<connection>', []);
+            // Duplicates are reported against the file, and the live copy is kept.
+            mergeInto(merged, file, '<schema file>', []);
+            this.schema = merged;
+        }
         this.rebuildIndexes();
     }
 

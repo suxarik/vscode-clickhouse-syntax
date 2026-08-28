@@ -1,0 +1,255 @@
+/**
+ * ClickHouse HTTP client.
+ *
+ * HTTP rather than the native protocol on purpose: no binary codec to maintain,
+ * and it is the only transport available in the web extension host. Built on
+ * `fetch`, which both hosts provide.
+ *
+ * Results stream as `JSONCompactEachRowWithNamesAndTypes` — one JSON array per
+ * line — so the first rows reach the grid immediately and a long query can be
+ * cancelled mid-read.
+ */
+import { ClickHouseError, ColumnMeta, QueryResult, QuerySummary, ResolvedConnection } from './types';
+
+export interface QueryOptions {
+    /** Supplied so the query can be cancelled with KILL QUERY. */
+    queryId?: string;
+    signal?: AbortSignal;
+    /**
+     * Send `readonly=2`, which lets ClickHouse itself reject writes. The client
+     * also refuses them before sending; neither check is trusted alone.
+     */
+    readOnly?: boolean;
+    /** Stop reading after this many rows. 0 reads everything. */
+    maxRows?: number;
+    maxExecutionTime?: number;
+    /** Called as rows arrive, for progressive rendering. */
+    onRows?: (rows: unknown[][], total: number) => void;
+    /** Overrides the profile's database for this query. */
+    database?: string;
+}
+
+const STREAM_FORMAT = 'JSONCompactEachRowWithNamesAndTypes';
+
+/** RFC 4122 v4, using the crypto both hosts provide. */
+export function newQueryId(): string {
+    if (typeof globalThis.crypto?.randomUUID === 'function') return globalThis.crypto.randomUUID();
+    // Deterministic fallback for environments without WebCrypto.
+    const bytes = new Uint8Array(16);
+    for (let i = 0; i < 16; i++) bytes[i] = Math.floor(Math.random() * 256);
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const hex = [...bytes].map(b => b.toString(16).padStart(2, '0')).join('');
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+/** `Code: 60. DB::Exception: Table x does not exist.` */
+export function parseServerError(body: string, httpStatus: number): ClickHouseError {
+    const match = /^Code:\s*(\d+)\.\s*(?:DB::(?:Exception|ErrnoException):\s*)?([\s\S]*)$/m.exec(body.trim());
+    if (!match) {
+        return new ClickHouseError(body.trim() || `HTTP ${httpStatus}`, undefined, httpStatus);
+    }
+    const code = Number.parseInt(match[1], 10);
+    // Drop the stack-trace tail ClickHouse appends after the message.
+    const message = match[2].split(/\n\s*(?:Stack trace|\(version )/)[0].trim();
+    return new ClickHouseError(message, code, httpStatus);
+}
+
+/** `X-ClickHouse-Summary` is JSON with string-valued counters. */
+export function parseSummary(header: string | null): QuerySummary | undefined {
+    if (!header) return undefined;
+    try {
+        const raw = JSON.parse(header) as Record<string, string>;
+        const num = (key: string) => (raw[key] === undefined ? undefined : Number(raw[key]));
+        const summary: QuerySummary = {
+            readRows: num('read_rows'),
+            readBytes: num('read_bytes'),
+            writtenRows: num('written_rows'),
+            writtenBytes: num('written_bytes'),
+            totalRowsToRead: num('total_rows_to_read'),
+            resultRows: num('result_rows'),
+            resultBytes: num('result_bytes'),
+        };
+        return Object.values(summary).some(value => value !== undefined && !Number.isNaN(value))
+            ? summary
+            : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
+export class ClickHouseClient {
+    constructor(private readonly connection: ResolvedConnection) {}
+
+    private buildUrl(options: QueryOptions): string {
+        const params = new URLSearchParams();
+
+        // JSON.parse rounds anything past 2^53, so a UInt64 event id would come
+        // back wrong. Asking ClickHouse to quote 64-bit integers and decimals
+        // keeps them exact; the column type tells the grid how to render them.
+        params.set('output_format_json_quote_64bit_integers', '1');
+        params.set('output_format_json_quote_decimals', '1');
+
+        params.set('database', options.database ?? this.connection.database);
+        if (options.queryId) params.set('query_id', options.queryId);
+        if (options.readOnly) params.set('readonly', '2');
+        if (options.maxRows && options.maxRows > 0) {
+            // One extra row tells us whether the result was cut short.
+            params.set('max_result_rows', String(options.maxRows + 1));
+            params.set('result_overflow_mode', 'break');
+        }
+        if (options.maxExecutionTime && options.maxExecutionTime > 0) {
+            params.set('max_execution_time', String(options.maxExecutionTime));
+        }
+        for (const [key, value] of Object.entries(this.connection.settings)) {
+            params.set(key, String(value));
+        }
+        return `${this.connection.url}/?${params.toString()}`;
+    }
+
+    private headers(): Record<string, string> {
+        const headers: Record<string, string> = {
+            'Content-Type': 'text/plain; charset=utf-8',
+            'X-ClickHouse-User': this.connection.user,
+        };
+        // Credentials go in headers, never the URL, so they stay out of logs.
+        if (this.connection.password) headers['X-ClickHouse-Key'] = this.connection.password;
+        return headers;
+    }
+
+    /** Run a statement and collect its rows. */
+    async query(sql: string, options: QueryOptions = {}): Promise<QueryResult> {
+        const queryId = options.queryId ?? newQueryId();
+        const started = Date.now();
+
+        const response = await fetch(this.buildUrl({ ...options, queryId }), {
+            method: 'POST',
+            headers: this.headers(),
+            body: `${sql}\nFORMAT ${STREAM_FORMAT}`,
+            signal: options.signal,
+        });
+
+        if (!response.ok) {
+            throw parseServerError(await response.text(), response.status);
+        }
+
+        const { columns, rows, truncated } = await this.readRows(response, options);
+        return {
+            queryId,
+            columns,
+            rows,
+            truncated,
+            elapsedMs: Date.now() - started,
+            summary: parseSummary(response.headers.get('X-ClickHouse-Summary')),
+        };
+    }
+
+    /**
+     * Run a statement whose result we do not need — DDL, INSERT, KILL.
+     * Returns the server's response body, which is usually empty.
+     */
+    async execute(sql: string, options: QueryOptions = {}): Promise<string> {
+        const response = await fetch(this.buildUrl(options), {
+            method: 'POST',
+            headers: this.headers(),
+            body: sql,
+            signal: options.signal,
+        });
+        const body = await response.text();
+        if (!response.ok) throw parseServerError(body, response.status);
+        return body;
+    }
+
+    /** Ask the server to stop a running query. Best effort. */
+    async kill(queryId: string): Promise<void> {
+        const escaped = queryId.replace(/'/g, "''");
+        await this.execute(`KILL QUERY WHERE query_id = '${escaped}' SYNC`, { readOnly: false });
+    }
+
+    /** Server version, used by `Test Connection` and version gating. */
+    async version(options: QueryOptions = {}): Promise<string> {
+        const result = await this.query('SELECT version()', { ...options, readOnly: true });
+        return String(result.rows[0]?.[0] ?? '');
+    }
+
+    /**
+     * Read the NDJSON stream: first line names, second line types, then rows.
+     */
+    private async readRows(
+        response: Response,
+        options: QueryOptions
+    ): Promise<{ columns: ColumnMeta[]; rows: unknown[][]; truncated: boolean }> {
+        const limit = options.maxRows && options.maxRows > 0 ? options.maxRows : Infinity;
+        const rows: unknown[][] = [];
+        let names: string[] = [];
+        let types: string[] = [];
+        let lineNumber = 0;
+        let truncated = false;
+
+        const handleLine = (line: string): boolean => {
+            if (!line) return true;
+            let parsed: unknown;
+            try {
+                parsed = JSON.parse(line);
+            } catch {
+                // A malformed tail can only mean a truncated stream.
+                return true;
+            }
+            if (lineNumber === 0) names = parsed as string[];
+            else if (lineNumber === 1) types = parsed as string[];
+            else if (rows.length < limit) rows.push(parsed as unknown[]);
+            else {
+                truncated = true;
+                return false;
+            }
+            lineNumber++;
+            return true;
+        };
+
+        if (!response.body) {
+            for (const line of (await response.text()).split('\n')) {
+                if (!handleLine(line.trim())) break;
+            }
+        } else {
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let batchStart = 0;
+
+            try {
+                for (;;) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    buffer += decoder.decode(value, { stream: true });
+
+                    let newline: number;
+                    let stop = false;
+                    while ((newline = buffer.indexOf('\n')) >= 0) {
+                        const line = buffer.slice(0, newline).trim();
+                        buffer = buffer.slice(newline + 1);
+                        if (!handleLine(line)) {
+                            stop = true;
+                            break;
+                        }
+                    }
+
+                    if (options.onRows && rows.length > batchStart) {
+                        options.onRows(rows.slice(batchStart), rows.length);
+                        batchStart = rows.length;
+                    }
+                    if (stop) break;
+                }
+                if (!truncated && buffer.trim()) handleLine(buffer.trim());
+            } finally {
+                // Releasing the reader lets the connection close on cancellation.
+                await reader.cancel().catch(() => undefined);
+            }
+        }
+
+        const columns: ColumnMeta[] = names.map((name, index) => ({
+            name,
+            type: types[index] ?? 'Unknown',
+        }));
+        return { columns, rows, truncated };
+    }
+}

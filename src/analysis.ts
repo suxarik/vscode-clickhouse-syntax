@@ -70,6 +70,11 @@ export class AnalysisCache implements vscode.Disposable {
         return analysis;
     }
 
+    /** Analyse a fragment that is not a document, such as a selection. */
+    analyze(text: string): Omit<DocumentAnalysis, 'version'> {
+        return analyzeText(text, this.columnSource);
+    }
+
     /** Drop cached analyses; call when the schema or catalog changes. */
     invalidate(): void {
         this.columnSource = makeColumnSource(this.schemaManager, this.catalog);

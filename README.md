@@ -280,6 +280,19 @@ command palette does the same thing explicitly.
 |---------|---------|-------------|
 | `clickhouse.serverVersion` | `auto` | Target ClickHouse version, e.g. `24.8`. Newer functions are hidden from completion. |
 
+### Connections and queries
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `clickhouse.connections` | `[]` | Server profiles. Passwords are stored separately, in the OS credential store. |
+| `clickhouse.schema.source` | `both` | `connection`, `file` or `both` — where IntelliSense gets its tables |
+| `clickhouse.schema.cacheTtlMinutes` | `60` | How long a cached server schema is used before refreshing |
+| `clickhouse.schema.includeSystemDatabase` | `false` | Introspect `system` too (the bundled catalog already covers it) |
+| `clickhouse.query.maxResultRows` | `100000` | Hard cap on rows pulled into the grid (`0` removes it) |
+| `clickhouse.query.maxExecutionTime` | `60` | Seconds before ClickHouse aborts a query (`0` removes it) |
+| `clickhouse.query.autoLimit` | `1000` | Rows read for a preview query |
+| `clickhouse.query.showRunCodeLens` | `true` | Show a Run action above each statement |
+
 ### Code Actions
 
 | Setting | Default | Description |
@@ -398,6 +411,8 @@ The extension is bundled with esbuild into `dist/extension.js` for the desktop h
 | `src/lint/` | The rule registry and the engine that applies severities and inline disables |
 | `src/catalog/` | The generated ClickHouse catalog and its access layer |
 | `src/providers/` | The VS Code surface: completion, hover, diagnostics, symbols, semantics, navigation |
+| `src/client/` | HTTP client, connection profiles, statement classification and the safety gate |
+| `src/results/` | Result grid — pure logic, plus a view behind a transport seam so it can also serve a notebook renderer |
 
 Nothing reads raw text with regexes — that is what keeps identifiers, string bodies and
 comment text from being mistaken for SQL.

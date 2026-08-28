@@ -2,6 +2,98 @@
 
 All notable changes to the ClickHouse SQL Syntax extension will be documented in this file.
 
+## [2.0.0] - 2026-08-28
+
+The connection release. Everything up to now made the editor understand ClickHouse; this
+one lets it talk to one. Run a statement, read the result, see why the plan is slow, and
+profile what it actually cost - without leaving the file you are writing.
+
+### Added
+
+#### Connections, and the rules around them
+
+- **Connection profiles** in `clickhouse.connections`: host, port, protocol, user,
+  database, and per-profile settings. Host, user and database accept `${env:VAR}`.
+- **Passwords are never in settings.** *ClickHouse: Set Connection Password* stores them
+  in the OS credential store through VS Code's `SecretStorage`.
+- **Read-only by default.** A profile without `allowWrite` refuses anything that is not a
+  read - it is a refusal, not a prompt you can click through. Writes are recognised from
+  the parse tree, so a `DROP` inside a string or a comment is not one.
+- **Two independent checks.** The statement is classified locally *and* `readonly=2` is
+  sent, so ClickHouse refuses it too. Verified end to end: a `CREATE TABLE` on a
+  read-only profile never leaves the client, and the server confirms no table was made.
+- **Destructive statements confirm** (`DROP`, `TRUNCATE`, `ALTER ... DELETE`, `SYSTEM`),
+  naming the profile and the target. `ALTER ... DELETE` and `ALTER ... DROP` are told
+  apart from metadata ALTERs.
+- **`protected` profiles** require the profile name typed out before any write.
+- **The active profile is always in the status bar**, marked read-only or protected, with
+  a warning colour on protected ones.
+- **Connections are disabled in restricted mode**, since profiles come from workspace
+  settings.
+
+#### Running queries
+
+- **`▷ Run` above every statement**, `⌘↵` / `Ctrl+↵`, or run the selection. A destructive
+  statement says so in the lens, before anyone clicks it.
+- **Results stream in** as they arrive. **Cancel** sends `KILL QUERY`, so the work stops
+  on the server rather than just dropping the socket.
+- **A virtualised result grid**: fifty thousand rows render as fewer than a hundred DOM
+  nodes. Sort by column, filter, expand nested `Array`/`Map`/`Tuple`/`JSON` cells, copy as
+  TSV/CSV/JSON/Markdown, export to a file, with read rows, bytes and elapsed in the footer.
+- **64-bit integers and decimals stay exact.** They cross the wire as strings, because
+  `JSON.parse` rounds anything past 2^53 - a `UInt64` event id was otherwise displayed
+  wrong. Sorting uses `BigInt` so the order is right too.
+
+#### Knowing the server
+
+- **Live schema introspection** from `system.tables` and `system.columns`, cached per
+  profile on disk with a TTL. A stale cache is used immediately and refreshed in the
+  background: a schema a few minutes old beats no completions at all.
+  `clickhouse.schema.source` chooses between the server, the JSON file, or both - where
+  both describe a table, the server wins and the file fills the gaps.
+- **An explorer view**: databases, tables and columns, with engine, row count, size on
+  disk and part count. Preview 100 rows, `SHOW CREATE`, copy the qualified name, or insert
+  a column list or a ready-made `SELECT`.
+- **EXPLAIN, read as a plan rather than as text.** `PLAN indexes = 1`, `PIPELINE`,
+  `ESTIMATE`, `SYNTAX` and `AST`, opened as a read-only document that leads with what
+  matters: which tables are read, and how much each index actually removed
+  (`parts 1/3 (33.3%)  granules 8/24 (33.3%)`). It says plainly when nothing was pruned.
+- **Query history** per workspace - what ran, against which profile, how long it took, and
+  what failed. Pick one to run it again. It records statements, never rows.
+- **Profile the last query** against `system.query_log`: duration, rows and bytes read,
+  peak memory, thread count.
+- **Validate against the server** on demand. Uses `EXPLAIN QUERY TREE`, which resolves
+  every name without reading a row - `EXPLAIN SYNTAX` was tried first and rejected,
+  because it accepts a column that does not exist. Falls back to `EXPLAIN PLAN` on servers
+  predating the analyzer.
+
+### Changed
+
+- `engines.vscode` raised to `^1.86.0`, for a host with a global `fetch`. HTTP is the only
+  transport: no binary codec to maintain, and it is the only one the web host can use.
+- The result grid is built behind a transport seam, with the webview bootstrap isolated in
+  one small file, so the notebook renderer planned for 2.1 reuses it rather than
+  reimplementing it.
+
+### Fixed
+
+- The EXPLAIN plan parser measured indentation in spaces. ClickHouse 26 draws the operator
+  level with box characters, which flattened the whole tree; the prefix is now measured as
+  a whole.
+- A syntax error position reported by ClickHouse is measured against what the server was
+  sent, so the `EXPLAIN` prefix is discounted before the range is placed. A position that
+  lands in the appended `FORMAT` clause falls back to underlining the statement.
+- A user's own syntax error no longer makes the validator think the server is too old for
+  `EXPLAIN QUERY TREE` - both report code 62, so only the message distinguishes them.
+
+### Infrastructure
+
+- Test suite grown to 759 tests; coverage 82%. The client, the safety gate, the grid and
+  the plan parser are all covered, the grid through jsdom.
+- Every parser in this release was checked against a real ClickHouse in Docker, not only
+  against fixtures. That is how the 64-bit rounding, the box-drawing plan format and the
+  `EXPLAIN SYNTAX` gap were found.
+
 ## [1.5.0] - 2026-08-28
 
 The parser release. Language intelligence now runs on a real ClickHouse SQL parser and a

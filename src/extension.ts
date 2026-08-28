@@ -15,6 +15,18 @@ import { registerCodeActionProvider } from './providers/codeActionProvider';
 import { Catalog, CATALOG_VERSION, CATALOG_GENERATED_AT, CATALOG_COUNTS } from './catalog';
 import { AnalysisCache } from './analysis';
 import { RULES } from './lint/engine';
+import { ConnectionManager } from './client/connectionManager';
+import { registerConnectionCommands } from './client/commands';
+import { ResultsPanel } from './results/resultsPanel';
+import { QueryRunner } from './client/queryRunner';
+import { registerRunCodeLens, registerRunCommands } from './client/runCommands';
+import { SchemaSync } from './client/schemaSync';
+import { ExplorerProvider } from './client/explorerView';
+import { registerExplorerCommands } from './client/explorerCommands';
+import { ExplainDocumentProvider, registerExplainCommands } from './client/explainCommands';
+import { QueryHistory } from './client/history';
+import { registerHistoryCommands } from './client/historyCommands';
+import { createLiveDiagnosticCollection, LiveValidator } from './client/liveDiagnostics';
 import { registerStructureProviders } from './providers/structureProvider';
 import { registerSemanticTokensProvider } from './providers/semanticTokensProvider';
 import { registerNavigationProviders } from './providers/navigationProvider';
@@ -51,11 +63,41 @@ function formatterSelector(): vscode.DocumentSelector {
 export function activate(context: vscode.ExtensionContext) {
     const catalog = new Catalog(context.extensionUri);
     const schemaManager = new SchemaManager(context);
+    const connections = new ConnectionManager(context);
+    context.subscriptions.push(connections, ...registerConnectionCommands(connections));
     const detector = new LanguageDetector(context);
     context.subscriptions.push(schemaManager, detector);
 
     const analysisCache = new AnalysisCache(schemaManager, catalog);
     context.subscriptions.push(analysisCache);
+
+    const resultsPanel = new ResultsPanel(context.extensionUri);
+    const queryHistory = new QueryHistory(context);
+    const queryRunner = new QueryRunner(connections, resultsPanel, analysisCache, queryHistory);
+    context.subscriptions.push(
+        resultsPanel,
+        registerRunCodeLens(analysisCache),
+        ...registerRunCommands(queryRunner, analysisCache)
+    );
+
+    // ── Live schema, explorer, EXPLAIN, history, server validation ──
+    const schemaSync = new SchemaSync(context, connections, schemaManager, analysisCache);
+    const explorer = new ExplorerProvider(schemaManager, connections);
+    const liveDiagnostics = createLiveDiagnosticCollection();
+    const validator = new LiveValidator(connections, analysisCache, liveDiagnostics);
+    const explainProvider = new ExplainDocumentProvider();
+
+    context.subscriptions.push(
+        schemaSync,
+        liveDiagnostics,
+        vscode.window.registerTreeDataProvider('clickhouseExplorer', explorer),
+        ...registerExplorerCommands(explorer, queryRunner, analysisCache, schemaSync),
+        ...registerExplainCommands(connections, analysisCache, explainProvider),
+        ...registerHistoryCommands(queryHistory, queryRunner, connections, analysisCache, validator),
+        connections.onDidChangeActiveProfile(() => explorer.reset())
+    );
+
+    void schemaSync.activate().then(() => explorer.refresh());
 
     const diagnosticCollection = createDiagnosticCollection();
     const diagnostics = new DiagnosticManager(diagnosticCollection, analysisCache, schemaManager, catalog);
@@ -138,8 +180,11 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand('clickhouse.toggleLanguage', () => detector.toggleLanguage()),
 
         vscode.commands.registerCommand('clickhouse.reloadSchema', async () => {
+            // Refresh both sources: the file, and the server if one is connected.
+            await schemaSync.refresh();
             const result = await schemaManager.loadSchema();
             analysisCache.invalidate();
+            explorer.refresh();
             if (result.schema) {
                 const tables = result.schema.databases.reduce((n, db) => n + db.tables.length, 0);
                 vscode.window.showInformationMessage(

@@ -26,6 +26,7 @@ export const CodeActionKind = {
 };
 
 export const ConfigurationTarget = { Global: 1, Workspace: 2, WorkspaceFolder: 3 };
+export const ProgressLocation = { SourceControl: 1, Window: 10, Notification: 15 };
 export const StatusBarAlignment = { Left: 1, Right: 2 };
 
 export class MarkdownString {
@@ -79,6 +80,10 @@ export class Diagnostic {
     code?: string | number;
     source?: string;
     constructor(public range: Range, public message: string, public severity?: number) {}
+}
+
+export class CodeLens {
+    constructor(public range: Range, public command?: unknown) {}
 }
 
 export class CodeAction {
@@ -198,7 +203,49 @@ export class SemanticTokensBuilder {
     }
 }
 
-export class Selection extends Range {}
+export class Selection extends Range {
+    constructor(public anchor: Position, public active: Position) {
+        super(anchor, active);
+    }
+}
+
+export const ViewColumn = { Active: -1, Beside: -2, One: 1, Two: 2 };
+
+export const TreeItemCollapsibleState = { None: 0, Collapsed: 1, Expanded: 2 };
+
+export class ThemeIcon {
+    constructor(public id: string, public color?: unknown) {}
+}
+
+export class TreeItem {
+    description?: string | boolean;
+    tooltip?: string | MarkdownString;
+    iconPath?: unknown;
+    contextValue?: string;
+    command?: unknown;
+    constructor(public label: string, public collapsibleState?: number) {}
+}
+
+export class ThemeColor {
+    constructor(public id: string) {}
+}
+
+/** Minimal event emitter with the same shape as the real one. */
+export class EventEmitter<T> {
+    private listeners: Array<(value: T) => void> = [];
+    readonly event = (listener: (value: T) => void): Disposable => {
+        this.listeners.push(listener);
+        return new Disposable(() => {
+            this.listeners = this.listeners.filter(entry => entry !== listener);
+        });
+    };
+    fire(value: T): void {
+        for (const listener of [...this.listeners]) listener(value);
+    }
+    dispose(): void {
+        this.listeners = [];
+    }
+}
 
 export class Disposable {
     constructor(private readonly callback?: () => void) {}
@@ -295,8 +342,11 @@ export const workspace = {
         readFile: jest.fn(),
         writeFile: jest.fn(),
         stat: jest.fn(),
+        createDirectory: jest.fn(async () => undefined),
+        delete: jest.fn(async () => undefined),
     },
     textDocuments: [] as TextDocument[],
+    isTrusted: true,
     workspaceFolders: undefined as unknown,
     onDidChangeConfiguration: jest.fn(disposable),
     onDidOpenTextDocument: jest.fn(disposable),
@@ -304,6 +354,7 @@ export const workspace = {
     onDidSaveTextDocument: jest.fn(disposable),
     onDidChangeTextDocument: jest.fn(disposable),
     openTextDocument: jest.fn(),
+    registerTextDocumentContentProvider: jest.fn(disposable),
     createFileSystemWatcher: jest.fn(() => ({
         onDidChange: jest.fn(disposable),
         onDidCreate: jest.fn(disposable),
@@ -326,17 +377,44 @@ export const window = {
         text: '',
         tooltip: '',
         command: '',
+        backgroundColor: undefined as unknown,
         show: jest.fn(),
         hide: jest.fn(),
         dispose: jest.fn(),
     })),
+    showQuickPick: jest.fn(),
+    showErrorMessage: jest.fn(),
+    setStatusBarMessage: jest.fn(),
+    showSaveDialog: jest.fn(),
+    createWebviewPanel: jest.fn(() => ({
+        title: '',
+        webview: {
+            html: '',
+            cspSource: 'vscode-webview:',
+            asWebviewUri: (uri: Uri) => uri,
+            postMessage: jest.fn(async () => true),
+            onDidReceiveMessage: jest.fn(disposable),
+        },
+        reveal: jest.fn(),
+        onDidDispose: jest.fn(disposable),
+        dispose: jest.fn(),
+    })),
+    showInputBox: jest.fn(),
+    withProgress: jest.fn(async (_options: unknown, task: (p: unknown, t: unknown) => Promise<unknown>) =>
+        task({ report: jest.fn() }, { isCancellationRequested: false, onCancellationRequested: jest.fn() })
+    ),
     onDidChangeActiveTextEditor: jest.fn(disposable),
+    registerTreeDataProvider: jest.fn(disposable),
     activeTextEditor: undefined as unknown,
 };
 
 export const commands = {
     registerCommand: jest.fn(disposable),
-    executeCommand: jest.fn(),
+    executeCommand: jest.fn(async () => undefined),
+};
+
+export const env = {
+    clipboard: { writeText: jest.fn(async () => undefined), readText: jest.fn(async () => '') },
 };
 
 export const languages = {
@@ -355,6 +433,7 @@ export const languages = {
     registerRenameProvider: jest.fn(disposable),
     registerDocumentHighlightProvider: jest.fn(disposable),
     registerInlayHintsProvider: jest.fn(disposable),
+    registerCodeLensProvider: jest.fn(disposable),
     createDiagnosticCollection: jest.fn(() => ({
         set: jest.fn(),
         delete: jest.fn(),

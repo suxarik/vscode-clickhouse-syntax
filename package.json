@@ -1,18 +1,19 @@
 {
   "name": "clickhouse-syntax",
   "displayName": "ClickHouse SQL Syntax",
-  "description": "ClickHouse SQL for VS Code: dialect-aware syntax highlighting, schema-aware IntelliSense, diagnostics, quick fixes and a formatter that never rewrites your identifiers.",
-  "version": "1.5.0",
+  "description": "ClickHouse SQL for VS Code: a real parser and scope binder, a catalog generated from ClickHouse itself, and a connection that lets you run, explain and profile queries in place.",
+  "version": "2.0.0",
   "publisher": "SuXarikisme",
   "icon": "images/clickhouse.png",
   "engines": {
-    "vscode": "^1.75.0"
+    "vscode": "^1.86.0"
   },
   "categories": [
     "Programming Languages",
     "Formatters",
     "Snippets",
-    "Linters"
+    "Linters",
+    "Data Science"
   ],
   "keywords": [
     "clickhouse",
@@ -106,6 +107,103 @@
         "command": "clickhouse.showLintRules",
         "title": "Show Lint Rules",
         "category": "ClickHouse"
+      },
+      {
+        "command": "clickhouse.selectConnection",
+        "title": "Select Connection",
+        "category": "ClickHouse"
+      },
+      {
+        "command": "clickhouse.testConnection",
+        "title": "Test Connection",
+        "category": "ClickHouse"
+      },
+      {
+        "command": "clickhouse.setConnectionPassword",
+        "title": "Set Connection Password",
+        "category": "ClickHouse"
+      },
+      {
+        "command": "clickhouse.clearConnectionPassword",
+        "title": "Clear Connection Password",
+        "category": "ClickHouse"
+      },
+      {
+        "command": "clickhouse.runQuery",
+        "title": "Run Query",
+        "category": "ClickHouse",
+        "icon": "$(play)"
+      },
+      {
+        "command": "clickhouse.cancelQuery",
+        "title": "Cancel Running Query",
+        "category": "ClickHouse"
+      },
+      {
+        "command": "clickhouse.runStatementAt",
+        "title": "Run Statement",
+        "category": "ClickHouse"
+      },
+      {
+        "command": "clickhouse.explainQuery",
+        "title": "Explain Query",
+        "category": "ClickHouse"
+      },
+      {
+        "command": "clickhouse.showQueryHistory",
+        "title": "Query History",
+        "category": "ClickHouse"
+      },
+      {
+        "command": "clickhouse.clearQueryHistory",
+        "title": "Clear Query History",
+        "category": "ClickHouse"
+      },
+      {
+        "command": "clickhouse.profileLastQuery",
+        "title": "Profile Last Query",
+        "category": "ClickHouse"
+      },
+      {
+        "command": "clickhouse.validateWithServer",
+        "title": "Validate Against Server",
+        "category": "ClickHouse"
+      },
+      {
+        "command": "clickhouse.refreshExplorer",
+        "title": "Refresh Explorer",
+        "category": "ClickHouse",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "clickhouse.previewTable",
+        "title": "Preview 100 Rows",
+        "category": "ClickHouse"
+      },
+      {
+        "command": "clickhouse.showCreateTable",
+        "title": "Show CREATE TABLE",
+        "category": "ClickHouse"
+      },
+      {
+        "command": "clickhouse.copyQualifiedName",
+        "title": "Copy Qualified Name",
+        "category": "ClickHouse"
+      },
+      {
+        "command": "clickhouse.insertColumnList",
+        "title": "Insert Column List",
+        "category": "ClickHouse"
+      },
+      {
+        "command": "clickhouse.insertName",
+        "title": "Insert Name",
+        "category": "ClickHouse"
+      },
+      {
+        "command": "clickhouse.selectFromTable",
+        "title": "Insert SELECT Statement",
+        "category": "ClickHouse"
       }
     ],
     "menus": {
@@ -148,6 +246,121 @@
         {
           "command": "clickhouse.showLintRules",
           "when": "true"
+        },
+        {
+          "command": "clickhouse.selectConnection",
+          "when": "true"
+        },
+        {
+          "command": "clickhouse.testConnection",
+          "when": "true"
+        },
+        {
+          "command": "clickhouse.setConnectionPassword",
+          "when": "true"
+        },
+        {
+          "command": "clickhouse.clearConnectionPassword",
+          "when": "true"
+        },
+        {
+          "command": "clickhouse.runQuery",
+          "when": "editorLangId == 'clickhouse' || editorLangId == 'sql'"
+        },
+        {
+          "command": "clickhouse.cancelQuery",
+          "when": "editorLangId == 'clickhouse' || editorLangId == 'sql'"
+        },
+        {
+          "command": "clickhouse.runStatementAt",
+          "when": "false"
+        },
+        {
+          "command": "clickhouse.explainQuery",
+          "when": "true"
+        },
+        {
+          "command": "clickhouse.showQueryHistory",
+          "when": "true"
+        },
+        {
+          "command": "clickhouse.clearQueryHistory",
+          "when": "true"
+        },
+        {
+          "command": "clickhouse.profileLastQuery",
+          "when": "true"
+        },
+        {
+          "command": "clickhouse.validateWithServer",
+          "when": "true"
+        },
+        {
+          "command": "clickhouse.refreshExplorer",
+          "when": "true"
+        },
+        {
+          "command": "clickhouse.previewTable",
+          "when": "false"
+        },
+        {
+          "command": "clickhouse.showCreateTable",
+          "when": "false"
+        },
+        {
+          "command": "clickhouse.copyQualifiedName",
+          "when": "false"
+        },
+        {
+          "command": "clickhouse.insertColumnList",
+          "when": "false"
+        },
+        {
+          "command": "clickhouse.insertName",
+          "when": "false"
+        },
+        {
+          "command": "clickhouse.selectFromTable",
+          "when": "false"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "clickhouse.refreshExplorer",
+          "when": "view == clickhouseExplorer",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "clickhouse.previewTable",
+          "when": "view == clickhouseExplorer && viewItem == clickhouse.table",
+          "group": "inline"
+        },
+        {
+          "command": "clickhouse.selectFromTable",
+          "when": "view == clickhouseExplorer && viewItem == clickhouse.table",
+          "group": "1_insert"
+        },
+        {
+          "command": "clickhouse.insertColumnList",
+          "when": "view == clickhouseExplorer && viewItem == clickhouse.table",
+          "group": "1_insert"
+        },
+        {
+          "command": "clickhouse.insertName",
+          "when": "view == clickhouseExplorer && viewItem in clickhouse.insertable",
+          "group": "1_insert"
+        },
+        {
+          "command": "clickhouse.showCreateTable",
+          "when": "view == clickhouseExplorer && viewItem == clickhouse.table",
+          "group": "2_inspect"
+        },
+        {
+          "command": "clickhouse.copyQualifiedName",
+          "when": "view == clickhouseExplorer",
+          "group": "3_copy"
         }
       ]
     },
@@ -405,8 +618,148 @@
           "default": 100,
           "minimum": 0,
           "description": "Break long parenthesised lists that would run past this column. 0 keeps them on one line."
+        },
+        "clickhouse.connections": {
+          "type": "array",
+          "default": [],
+          "markdownDescription": "ClickHouse servers to run queries against. Passwords are **not** stored here \u2014 use **ClickHouse: Set Connection Password**, which saves them to the OS credential store. Profiles are read-only unless `allowWrite` is `true`.",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "host"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Name shown in the status bar and pickers."
+              },
+              "host": {
+                "type": "string",
+                "description": "Hostname. Supports ${env:VAR}."
+              },
+              "port": {
+                "type": "number",
+                "description": "Defaults to 8123 for http, 8443 for https."
+              },
+              "protocol": {
+                "type": "string",
+                "enum": [
+                  "http",
+                  "https"
+                ],
+                "default": "http"
+              },
+              "user": {
+                "type": "string",
+                "default": "default",
+                "description": "Supports ${env:VAR}."
+              },
+              "database": {
+                "type": "string",
+                "default": "default",
+                "description": "Supports ${env:VAR}."
+              },
+              "allowWrite": {
+                "type": "boolean",
+                "default": false,
+                "description": "Permit INSERT, DDL and other writes. Off by default."
+              },
+              "protected": {
+                "type": "boolean",
+                "default": false,
+                "description": "Require the profile name to be typed before any write runs."
+              },
+              "settings": {
+                "type": "object",
+                "description": "Settings sent with every query on this profile."
+              }
+            }
+          }
+        },
+        "clickhouse.query.autoLimit": {
+          "type": "number",
+          "default": 1000,
+          "minimum": 0,
+          "description": "Rows to read for a preview query. 0 reads everything."
+        },
+        "clickhouse.query.maxResultRows": {
+          "type": "number",
+          "default": 100000,
+          "minimum": 0,
+          "description": "Hard cap on rows pulled into the result grid. 0 removes the cap."
+        },
+        "clickhouse.query.maxExecutionTime": {
+          "type": "number",
+          "default": 60,
+          "minimum": 0,
+          "description": "Seconds before ClickHouse aborts a query. 0 removes the limit."
+        },
+        "clickhouse.query.showRunCodeLens": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a Run action above each statement."
+        },
+        "clickhouse.schema.source": {
+          "type": "string",
+          "enum": [
+            "connection",
+            "file",
+            "both"
+          ],
+          "enumDescriptions": [
+            "Only use the schema read from the connected server.",
+            "Only use the JSON schema file(s).",
+            "Use both; where they describe the same table, the server wins."
+          ],
+          "default": "both",
+          "description": "Where schema-aware IntelliSense gets its tables and columns."
+        },
+        "clickhouse.schema.cacheTtlMinutes": {
+          "type": "number",
+          "default": 60,
+          "minimum": 0,
+          "description": "How long a cached server schema is used before it is refreshed. 0 never refreshes automatically."
+        },
+        "clickhouse.schema.includeSystemDatabase": {
+          "type": "boolean",
+          "default": false,
+          "description": "Introspect the system database too. Off by default: the bundled catalog already describes it."
+        },
+        "clickhouse.schema.maxTables": {
+          "type": "number",
+          "default": 20000,
+          "minimum": 1,
+          "description": "Stop introspecting a server with more tables than this."
         }
       }
+    },
+    "keybindings": [
+      {
+        "command": "clickhouse.runQuery",
+        "key": "ctrl+enter",
+        "mac": "cmd+enter",
+        "when": "editorTextFocus && (editorLangId == 'clickhouse' || editorLangId == 'sql')"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "clickhouse",
+          "title": "ClickHouse",
+          "icon": "images/clickhouse-plain.svg"
+        }
+      ]
+    },
+    "views": {
+      "clickhouse": [
+        {
+          "id": "clickhouseExplorer",
+          "name": "Explorer",
+          "contextualTitle": "ClickHouse"
+        }
+      ]
     }
   },
   "scripts": {
@@ -428,13 +781,14 @@
   "devDependencies": {
     "@types/jest": "^30.0.0",
     "@types/node": "^18.0.0",
-    "@types/vscode": "^1.75.0",
+    "@types/vscode": "^1.86.0",
     "@typescript-eslint/eslint-plugin": "^8.68.0",
     "@typescript-eslint/parser": "^8.68.0",
     "@vscode/vsce": "^2.19.0",
     "esbuild": "^0.28.2",
     "eslint": "^9.39.5",
     "jest": "^30.3.0",
+    "jest-environment-jsdom": "^30.5.0",
     "prettier": "^3.9.6",
     "ts-jest": "^29.4.9",
     "typescript": "^5.0.0",
@@ -442,8 +796,11 @@
   },
   "capabilities": {
     "untrustedWorkspaces": {
-      "supported": true,
-      "description": "Schema files are read as data only; no code from the workspace is executed."
+      "supported": "limited",
+      "description": "Language features work everywhere. Connecting to a server is disabled in restricted mode, because connection profiles come from workspace settings.",
+      "restrictedConfigurations": [
+        "clickhouse.connections"
+      ]
     },
     "virtualWorkspaces": true
   }
