@@ -12,6 +12,8 @@ import { QueryRunner } from '../client/queryRunner';
 import { FILE_EXTENSION } from '../results/serialize';
 import { SerializationFormat } from '../results/protocol';
 import { NotebookControllers, RESULT_MIME } from './controller';
+import { ParameterStore } from './parameters';
+import { openTemplate, TEMPLATES } from './templates';
 import { ClickHouseNotebookSerializer, NOTEBOOK_TYPE } from './serializer';
 
 export { NOTEBOOK_TYPE, RESULT_MIME };
@@ -55,9 +57,12 @@ async function handleRendererRequest(request: RendererRequest): Promise<void> {
 export function registerNotebook(
     connections: ConnectionManager,
     runner: QueryRunner,
-    analysisCache: AnalysisCache
+    analysisCache: AnalysisCache,
+    extensionUri: vscode.Uri = vscode.Uri.file('.')
 ): vscode.Disposable[] {
     const messaging = vscode.notebooks.createRendererMessaging(RENDERER_ID);
+    const parameters = new ParameterStore();
+    const controllers = new NotebookControllers(connections, runner, analysisCache, parameters);
 
     return [
         vscode.workspace.registerNotebookSerializer(NOTEBOOK_TYPE, new ClickHouseNotebookSerializer(), {
@@ -66,7 +71,7 @@ export function registerNotebook(
             transientOutputs: true,
             transientCellMetadata: { marker: false, trailingBlankLines: false },
         }),
-        new NotebookControllers(connections, runner, analysisCache),
+        controllers,
         messaging.onDidReceiveMessage(event => {
             if (isRendererRequest(event.message)) void handleRendererRequest(event.message);
         }),
@@ -78,6 +83,37 @@ export function registerNotebook(
                 return;
             }
             await vscode.commands.executeCommand('vscode.openWith', editor.document.uri, NOTEBOOK_TYPE);
+        }),
+
+        vscode.commands.registerCommand('clickhouse.resetRunbookParameters', async () => {
+            const notebook = vscode.window.activeNotebookEditor?.notebook;
+            if (!notebook) {
+                vscode.window.showInformationMessage('ClickHouse: open a runbook to reset its parameters.');
+                return;
+            }
+            controllers.clearParameters(notebook);
+            vscode.window.showInformationMessage(
+                'ClickHouse: runbook parameters cleared. The next run will ask again.'
+            );
+        }),
+
+        vscode.commands.registerCommand('clickhouse.openRunbookTemplate', async () => {
+            const picked = await vscode.window.showQuickPick(
+                TEMPLATES.map(template => ({
+                    label: template.label,
+                    detail: template.detail,
+                    template,
+                })),
+                { placeHolder: 'Which runbook?', matchOnDetail: true }
+            );
+            if (!picked) return;
+            try {
+                await openTemplate(extensionUri, picked.template, NOTEBOOK_TYPE);
+            } catch (error) {
+                vscode.window.showErrorMessage(
+                    `ClickHouse: could not open that runbook - ${error instanceof Error ? error.message : String(error)}`
+                );
+            }
         }),
 
         vscode.commands.registerCommand('clickhouse.newNotebook', async () => {

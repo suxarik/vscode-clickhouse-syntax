@@ -16,6 +16,7 @@ import { ConnectionManager } from '../client/connectionManager';
 import { QueryRunner } from '../client/queryRunner';
 import { ColumnMeta, ResultHeader, ResultStatistics } from '../results/protocol';
 import { ResultSink, SinkCallbacks } from '../results/sink';
+import { findParameters, ParameterStore, suggestValue } from './parameters';
 import { NOTEBOOK_TYPE } from './serializer';
 
 /** The mime type our renderer claims. Anything else falls back to text. */
@@ -133,7 +134,8 @@ export class NotebookControllers implements vscode.Disposable {
     constructor(
         private readonly connections: ConnectionManager,
         private readonly runner: QueryRunner,
-        private readonly analysisCache: AnalysisCache
+        private readonly analysisCache: AnalysisCache,
+        private readonly parameters: ParameterStore = new ParameterStore()
     ) {
         this.sync();
         this.watcher = vscode.workspace.onDidChangeConfiguration(event => {
@@ -180,7 +182,7 @@ export class NotebookControllers implements vscode.Disposable {
      */
     private async execute(
         cells: vscode.NotebookCell[],
-        _notebook: vscode.NotebookDocument,
+        notebook: vscode.NotebookDocument,
         controller: vscode.NotebookController
     ): Promise<void> {
         // Running a cell is a statement of intent about which server to use.
@@ -198,9 +200,16 @@ export class NotebookControllers implements vscode.Disposable {
                 continue;
             }
 
+            const values = await this.resolveParameters(notebook, sql);
+            if (!values) {
+                // The prompt was dismissed: nothing ran, so say nothing ran.
+                execution.end(undefined, Date.now());
+                break;
+            }
+
             const sink = new CellSink(execution);
             const statements = this.analysisCache.analyze(sql).program.statements;
-            await this.runner.run({ sql, statements }, sink);
+            await this.runner.run({ sql, statements, parameters: values }, sink);
 
             // A gate that refused, or a profile that vanished, means the sink
             // never saw a result at all. Ending it here stops the cell spinning
@@ -210,7 +219,45 @@ export class NotebookControllers implements vscode.Disposable {
         }
     }
 
+    /**
+     * Fill in every `{name:Type}` the cell uses, asking once per notebook.
+     *
+     * `undefined` means the prompt was dismissed, which is a decision not to
+     * run rather than a reason to send an unsubstituted query.
+     */
+    private async resolveParameters(
+        notebook: vscode.NotebookDocument,
+        sql: string
+    ): Promise<Record<string, string> | undefined> {
+        const key = notebook.uri.toString();
+        const wanted = findParameters(sql);
+        if (wanted.length === 0) return {};
+
+        const missing = this.parameters.missing(key, wanted);
+        for (const [index, parameter] of missing.entries()) {
+            const value = await vscode.window.showInputBox({
+                title:
+                    missing.length > 1
+                        ? `Runbook parameter (${index + 1}/${missing.length})`
+                        : 'Runbook parameter',
+                prompt: `${parameter.name} · ${parameter.type}`,
+                value: suggestValue(parameter.type),
+                ignoreFocusOut: true,
+            });
+            if (value === undefined) return undefined;
+            this.parameters.set(key, parameter.name, value);
+        }
+
+        return this.parameters.values(key);
+    }
+
+    /** Forget what was entered, so the next run asks again. */
+    clearParameters(notebook: vscode.NotebookDocument): void {
+        this.parameters.clear(notebook.uri.toString());
+    }
+
     dispose(): void {
+        this.parameters.forget();
         this.watcher.dispose();
         for (const controller of this.controllers.values()) controller.dispose();
         this.controllers.clear();

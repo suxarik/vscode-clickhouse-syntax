@@ -217,13 +217,16 @@ describe('controllers', () => {
         return { document: { getText: () => text }, outputs };
     }
 
+    /** The notebook a cell belongs to, identified by its URI. */
+    const notebook = { uri: vscode.Uri.file('/w/incident.runbook.sql') } as unknown as vscode.NotebookDocument;
+
     it('runs a cell through the same runner as the editor, so the gate still applies', async () => {
         const { controllers, runner, connections } = makeControllers([{ name: 'local', host: 'h' }]);
         const controller = Object.values(controllersById)[0];
         const execution = makeExecution();
         controller.createNotebookCellExecution.mockReturnValue(execution);
 
-        await controller.executeHandler!([makeCell('SELECT 1')], {}, controller);
+        await controller.executeHandler!([makeCell('SELECT 1')], notebook, controller);
 
         expect(runner.run).toHaveBeenCalledWith(
             expect.objectContaining({ sql: 'SELECT 1' }),
@@ -241,7 +244,7 @@ describe('controllers', () => {
         const controller = Object.values(controllersById)[0];
         controller.createNotebookCellExecution.mockReturnValue(makeExecution());
 
-        await controller.executeHandler!([makeCell('   \n')], {}, controller);
+        await controller.executeHandler!([makeCell('   \n')], notebook, controller);
 
         expect(runner.run).not.toHaveBeenCalled();
         controllers.dispose();
@@ -255,9 +258,77 @@ describe('controllers', () => {
         const failed = makeCell('SELECT bad', [
             { items: [{ mime: 'application/vnd.code.notebook.error' }] },
         ]);
-        await controller.executeHandler!([failed, makeCell('SELECT 2')], {}, controller);
+        await controller.executeHandler!([failed, makeCell('SELECT 2')], notebook, controller);
 
         expect(runner.run).toHaveBeenCalledTimes(1);
+        controllers.dispose();
+    });
+
+    it('asks for a parameter once, then remembers it for the notebook', async () => {
+        const { controllers, runner } = makeControllers([{ name: 'local', host: 'h' }]);
+        const controller = Object.values(controllersById)[0];
+        controller.createNotebookCellExecution.mockImplementation(() => makeExecution());
+        (vscode.window.showInputBox as jest.Mock).mockResolvedValue('2026-01-01');
+
+        const cell = makeCell('SELECT count() FROM events WHERE d >= {start:Date}');
+        await controller.executeHandler!([cell], notebook, controller);
+        await controller.executeHandler!([cell], notebook, controller);
+
+        expect(vscode.window.showInputBox).toHaveBeenCalledTimes(1);
+        // And the value is handed to the server as a parameter, never spliced
+        // into the SQL - that is what stops a typed date being an injection.
+        expect(runner.run).toHaveBeenLastCalledWith(
+            expect.objectContaining({
+                sql: 'SELECT count() FROM events WHERE d >= {start:Date}',
+                parameters: { start: '2026-01-01' },
+            }),
+            expect.anything()
+        );
+        controllers.dispose();
+    });
+
+    it('runs nothing when the parameter prompt is dismissed', async () => {
+        const { controllers, runner } = makeControllers([{ name: 'local', host: 'h' }]);
+        const controller = Object.values(controllersById)[0];
+        const execution = makeExecution();
+        controller.createNotebookCellExecution.mockReturnValue(execution);
+        (vscode.window.showInputBox as jest.Mock).mockResolvedValue(undefined);
+
+        await controller.executeHandler!([makeCell('SELECT {x:UInt64}')], notebook, controller);
+
+        expect(runner.run).not.toHaveBeenCalled();
+        // Nothing ran, so the cell is marked neither passed nor failed.
+        expect(execution.end).toHaveBeenCalledWith(undefined, expect.any(Number));
+        controllers.dispose();
+    });
+
+    it('does not ask at all for a cell with no placeholders', async () => {
+        const { controllers, runner } = makeControllers([{ name: 'local', host: 'h' }]);
+        const controller = Object.values(controllersById)[0];
+        controller.createNotebookCellExecution.mockReturnValue(makeExecution());
+
+        await controller.executeHandler!([makeCell('SELECT 1')], notebook, controller);
+
+        expect(vscode.window.showInputBox).not.toHaveBeenCalled();
+        expect(runner.run).toHaveBeenCalledWith(
+            expect.objectContaining({ parameters: {} }),
+            expect.anything()
+        );
+        controllers.dispose();
+    });
+
+    it('asks again after the parameters are reset', async () => {
+        const { controllers } = makeControllers([{ name: 'local', host: 'h' }]);
+        const controller = Object.values(controllersById)[0];
+        controller.createNotebookCellExecution.mockImplementation(() => makeExecution());
+        (vscode.window.showInputBox as jest.Mock).mockResolvedValue('7');
+
+        const cell = makeCell('SELECT {n:UInt64}');
+        await controller.executeHandler!([cell], notebook, controller);
+        controllers.clearParameters(notebook);
+        await controller.executeHandler!([cell], notebook, controller);
+
+        expect(vscode.window.showInputBox).toHaveBeenCalledTimes(2);
         controllers.dispose();
     });
 
@@ -276,7 +347,7 @@ describe('controllers', () => {
         // A refusal means the sink never sees begin or end.
         runner.run.mockImplementation(async () => undefined);
 
-        await controller.executeHandler!([makeCell('INSERT INTO t VALUES (1)')], {}, controller);
+        await controller.executeHandler!([makeCell('INSERT INTO t VALUES (1)')], notebook, controller);
 
         expect(execution.end).toHaveBeenCalledWith(undefined, expect.any(Number));
         controllers.dispose();
@@ -297,7 +368,7 @@ describe('controllers', () => {
             return undefined;
         });
 
-        await controller.executeHandler!([makeCell('SELECT 1')], {}, controller);
+        await controller.executeHandler!([makeCell('SELECT 1')], notebook, controller);
 
         const output = execution.replaceOutput.mock.calls[0][0] as unknown as vscode.NotebookCellOutput;
         expect(output.items.map(item => item.mime)).toEqual([RESULT_MIME, 'text/plain']);
@@ -321,7 +392,7 @@ describe('controllers', () => {
             return undefined;
         });
 
-        await controller.executeHandler!([makeCell('SELECT bad')], {}, controller);
+        await controller.executeHandler!([makeCell('SELECT bad')], notebook, controller);
 
         const output = execution.replaceOutput.mock.calls[0][0] as unknown as vscode.NotebookCellOutput;
         expect(output.items[0].mime).toBe('application/vnd.code.notebook.error');

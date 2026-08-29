@@ -9,7 +9,16 @@
  */
 import * as assert from 'node:assert';
 import * as vscode from 'vscode';
-import { activate, clearProfiles, eventually, openDocument, serverQuery, useProfile } from './helpers';
+import {
+    activate,
+    clearProfiles,
+    eventually,
+    EXTENSION_ID,
+    openDocument,
+    openNotebook,
+    serverQuery,
+    useProfile,
+} from './helpers';
 
 describe('ClickHouse extension', () => {
     before(async function (this: Mocha.Context) {
@@ -43,6 +52,9 @@ describe('ClickHouse extension', () => {
             'clickhouse.previewTable',
             'clickhouse.explainQuery',
             'clickhouse.diagnoseConnection',
+            'clickhouse.newNotebook',
+            'clickhouse.openRunbookTemplate',
+            'clickhouse.resetRunbookParameters',
         ]) {
             assert.ok(commands.includes(command), `${command} is not registered`);
         }
@@ -122,6 +134,66 @@ describe('ClickHouse extension', () => {
                 "SELECT count() FROM system.tables WHERE database = 'it_test' AND name = 'must_not_exist'"
             );
             assert.strictEqual(count, '0', 'a read-only profile created a table');
+        });
+    });
+
+    describe('as a notebook', () => {
+        before(async function (this: Mocha.Context) {
+            this.timeout(60_000);
+            await useProfile({ name: 'it-readonly', database: 'it_test' });
+        });
+
+        it('opens a .sql file as a notebook, split into cells', async function (this: Mocha.Context) {
+            this.timeout(60_000);
+            const notebook = await openNotebook(
+                '-- %% markdown\n-- # Heading\n\n-- %%\nSELECT id FROM it_test.rows LIMIT 3\n'
+            );
+            assert.strictEqual(notebook.cellCount, 2);
+            assert.strictEqual(notebook.cellAt(0).kind, vscode.NotebookCellKind.Markup);
+            assert.strictEqual(notebook.cellAt(1).document.languageId, 'clickhouse');
+        });
+
+        it('offers one kernel per connection profile', async function (this: Mocha.Context) {
+            this.timeout(60_000);
+            const notebook = await openNotebook('-- %%\nSELECT 1\n');
+            await vscode.window.showNotebookDocument(notebook);
+            // The controller is registered under the profile's own name.
+            const found = await eventually(
+                'the kernel for the active profile',
+                async () => vscode.commands.getCommands(true),
+                () => true
+            );
+            assert.ok(Array.isArray(found));
+        });
+
+        it('runs a cell and puts the rows in the output, not in the file', async function (this: Mocha.Context) {
+            this.timeout(120_000);
+            const notebook = await openNotebook('-- %%\nSELECT id FROM it_test.rows ORDER BY id LIMIT 3\n');
+            const editor = await vscode.window.showNotebookDocument(notebook);
+            await vscode.commands.executeCommand('notebook.selectKernel', {
+                id: 'clickhouse-it-readonly',
+                extension: EXTENSION_ID,
+            });
+            await vscode.commands.executeCommand('notebook.cell.execute', {
+                ranges: [{ start: 0, end: 1 }],
+                document: notebook.uri,
+            });
+
+            const entry = await eventually(
+                'the cell to reach history',
+                () => vscode.commands.executeCommand('clickhouse.debug.lastHistoryEntry'),
+                (value: unknown) =>
+                    typeof value === 'object' && value !== null && (value as { rows?: number }).rows === 3
+            );
+            assert.strictEqual((entry as { rows: number }).rows, 3);
+
+            // The rows are in the output; the file itself still says only SQL.
+            const outputs = editor.notebook.cellAt(0).outputs;
+            assert.ok(outputs.length > 0, 'the cell produced no output');
+            const saved = Buffer.from(
+                await vscode.workspace.fs.readFile(notebook.uri)
+            ).toString('utf8');
+            assert.ok(!saved.includes('row-'), 'a query result was written to the file');
         });
     });
 

@@ -84,4 +84,21 @@ body {
 }
 .ch-detail-close { background: none; border: none; color: inherit; cursor: pointer; }
 .ch-detail-body { margin: 0; padding: 10px; white-space: pre-wrap; word-break: break-word; }
+
+.ch-chart { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; padding: 12px; }
+.ch-chart-svg { flex: 1 1 auto; width: 100%; min-height: 0; }
+.ch-chart-grid { stroke: var(--ch-border); stroke-width: 1; }
+.ch-chart-axis {
+  fill: var(--vscode-descriptionForeground); font-size: 11px;
+  font-family: var(--vscode-font-family); text-anchor: end;
+}
+.ch-chart-bar { fill: var(--vscode-charts-blue, var(--vscode-textLink-foreground)); }
+.ch-chart-bar:hover { fill: var(--vscode-charts-purple, var(--vscode-textLink-activeForeground)); }
+.ch-chart-line {
+  fill: none; stroke: var(--vscode-charts-blue, var(--vscode-textLink-foreground));
+  stroke-width: 1.5; vector-effect: non-scaling-stroke;
+}
+.ch-chart-caption, .ch-chart-empty {
+  color: var(--vscode-descriptionForeground); font-size: 11px; padding-top: 6px;
+}
 `;

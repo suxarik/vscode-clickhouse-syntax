@@ -15,6 +15,7 @@ import {
 } from '../format';
 import { columnWidths, filteredIndices, nextSort, sortedIndices, SortState, visibleWindow } from '../grid';
 import { ColumnMeta, HostMessage, ResultStatistics, SerializationFormat } from '../protocol';
+import { chartCaption, chartPoints, planChart, renderChart } from './chart';
 import { Transport } from './transport';
 
 const ROW_HEIGHT = 22;
@@ -36,6 +37,8 @@ interface State {
     error?: string;
     profile: string;
     query: string;
+    /** Whether the chart is showing instead of the rows. */
+    charting: boolean;
 }
 
 export class GridView {
@@ -50,6 +53,7 @@ export class GridView {
         running: false,
         profile: '',
         query: '',
+        charting: false,
     };
 
     private readonly elements: {
@@ -63,6 +67,8 @@ export class GridView {
         body: HTMLElement;
         footer: HTMLElement;
         message: HTMLElement;
+        chartButton: HTMLButtonElement;
+        chart: HTMLElement;
     };
 
     constructor(
@@ -82,6 +88,8 @@ export class GridView {
             body: this.must('.ch-body'),
             footer: this.must('.ch-footer'),
             message: this.must('.ch-message'),
+            chartButton: this.must('.ch-chart-toggle') as HTMLButtonElement,
+            chart: this.must('.ch-chart'),
         };
 
         this.bindEvents();
@@ -133,6 +141,7 @@ export class GridView {
                     running: true,
                     profile: message.header.profile,
                     query: message.header.query,
+                    charting: false,
                 };
                 this.renderHead();
                 this.renderAll();
@@ -196,6 +205,11 @@ export class GridView {
 
         this.elements.cancel.addEventListener('click', () => this.transport.post({ type: 'cancel' }));
 
+        this.elements.chartButton.addEventListener('click', () => {
+            this.state.charting = !this.state.charting;
+            this.renderAll();
+        });
+
         this.elements.toolbar.addEventListener('click', event => {
             const target = (event.target as HTMLElement).closest<HTMLElement>('[data-action]');
             if (!target) return;
@@ -242,9 +256,53 @@ export class GridView {
         this.renderHead();
         this.renderBody();
         this.renderFooter();
+        this.renderChartView();
         this.elements.cancel.hidden = !this.state.running;
         this.elements.message.textContent = this.state.error ?? '';
         this.elements.message.hidden = !this.state.error;
+    }
+
+    /**
+     * Show the chart, or offer it, or neither.
+     *
+     * The button only appears when the result is actually chartable, so it is
+     * never a control that does nothing when pressed.
+     */
+    private renderChartView(): void {
+        const plan = this.state.running ? undefined : planChart(this.state.columns, this.state.rows);
+        this.elements.chartButton.hidden = plan === undefined;
+        this.elements.chartButton.textContent = this.state.charting ? 'Rows' : 'Chart';
+
+        const showing = plan !== undefined && this.state.charting;
+        this.elements.chart.hidden = !showing;
+        this.elements.scroller.hidden = showing;
+        this.elements.head.hidden = showing;
+        if (!showing) {
+            this.elements.chart.replaceChildren();
+            return;
+        }
+
+        // Charting follows the filter and the sort, so what is drawn is what
+        // the rows above it would have shown.
+        const rows = this.state.order.map(index => this.state.rows[index]);
+        const svg = renderChart(this.state.columns, rows, plan);
+        this.elements.chart.replaceChildren();
+        if (!svg) {
+            const empty = document.createElement('div');
+            empty.className = 'ch-chart-empty';
+            empty.textContent = 'Nothing numeric to plot.';
+            this.elements.chart.appendChild(empty);
+            return;
+        }
+        this.elements.chart.appendChild(svg);
+
+        const caption = chartCaption(rows.length, chartPoints(this.state.columns, rows, plan).length);
+        if (caption) {
+            const note = document.createElement('div');
+            note.className = 'ch-chart-caption';
+            note.textContent = caption;
+            this.elements.chart.appendChild(note);
+        }
     }
 
     private headSignature = '';
@@ -397,6 +455,7 @@ const TEMPLATE = `
     <button data-action="export" data-format="csv">CSV</button>
     <button data-action="export" data-format="json">JSON</button>
   </span>
+  <button class="ch-chart-toggle" hidden>Chart</button>
 </div>
 <div class="ch-message" hidden></div>
 <div class="ch-head"></div>
@@ -404,5 +463,6 @@ const TEMPLATE = `
   <div class="ch-spacer"></div>
   <div class="ch-table"><div class="ch-body"></div></div>
 </div>
+<div class="ch-chart" hidden></div>
 <div class="ch-footer"></div>
 `;

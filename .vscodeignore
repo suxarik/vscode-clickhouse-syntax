@@ -31,3 +31,6 @@ images/icon.png
 docs/**
 .vscode-test.mjs
 .vscode-test/**
+
+# ...but the shipped runbook templates are .sql on purpose, and must be packaged.
+!media/runbooks/**

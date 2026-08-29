@@ -34,6 +34,14 @@ export interface QueryOptions {
     timeoutMs?: number;
     /** Progress notes for the diagnostics log. */
     onTrace?: (note: string) => void;
+    /**
+     * Values for `{name:Type}` placeholders in the query.
+     *
+     * Sent as ClickHouse's own `param_<name>`, so the server does the
+     * substitution with the type it was given. Interpolating them into the SQL
+     * here would be an injection waiting to happen.
+     */
+    parameters?: Record<string, string>;
 }
 
 const STREAM_FORMAT = 'JSONCompactEachRowWithNamesAndTypes';
@@ -194,6 +202,11 @@ export class ClickHouseClient {
         }
         for (const [key, value] of Object.entries(this.connection.settings)) {
             params.set(key, String(value));
+        }
+        // Set after the profile's settings so a runbook parameter cannot be
+        // shadowed by one, and prefixed so it can only ever be a parameter.
+        for (const [name, value] of Object.entries(options.parameters ?? {})) {
+            params.set(`param_${name}`, value);
         }
         return `${this.connection.url}/?${params.toString()}`;
     }

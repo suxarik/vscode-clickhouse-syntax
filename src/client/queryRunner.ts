@@ -24,6 +24,8 @@ export interface RunTarget {
     statements: Statement[];
     /** Range to highlight while it runs. */
     range?: vscode.Range;
+    /** Values for `{name:Type}` placeholders, substituted by the server. */
+    parameters?: Record<string, string>;
 }
 
 function describe(error: unknown): { message: string; code?: number } {
@@ -182,6 +184,7 @@ export class QueryRunner implements vscode.Disposable {
                 readOnly: profile?.allowWrite !== true,
                 maxRows: config.get<number>('query.maxResultRows', 100_000),
                 maxExecutionTime: config.get<number>('query.maxExecutionTime', 60),
+                parameters: target.parameters,
                 // Columns are known before any row arrives, and the rows are
                 // streamed once. Re-sending them at the end would double the
                 // traffic and throw away what the view had already drawn.

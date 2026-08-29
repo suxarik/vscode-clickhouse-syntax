@@ -2,7 +2,7 @@
   "name": "clickhouse-syntax",
   "displayName": "ClickHouse SQL Syntax",
   "description": "ClickHouse SQL for VS Code: a real parser and scope binder, a catalog generated from ClickHouse itself, and a connection that lets you run, explain and profile queries in place.",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "publisher": "SuXarikisme",
   "icon": "images/clickhouse.png",
   "engines": {
@@ -13,7 +13,8 @@
     "Formatters",
     "Snippets",
     "Linters",
-    "Data Science"
+    "Data Science",
+    "Notebooks"
   ],
   "keywords": [
     "clickhouse",
@@ -25,7 +26,9 @@
     "completion",
     "hover",
     "diagnostics",
-    "formatter"
+    "formatter",
+    "notebook",
+    "runbook"
   ],
   "galleryBanner": {
     "color": "#1A1A2E",
@@ -248,6 +251,17 @@
         "command": "clickhouse.openAsNotebook",
         "title": "Open as Runbook",
         "category": "ClickHouse"
+      },
+      {
+        "command": "clickhouse.resetRunbookParameters",
+        "title": "Reset Runbook Parameters",
+        "category": "ClickHouse"
+      },
+      {
+        "command": "clickhouse.openRunbookTemplate",
+        "title": "Open a Runbook Template",
+        "category": "ClickHouse",
+        "icon": "$(book)"
       }
     ],
     "menus": {
@@ -397,6 +411,13 @@
         {
           "command": "clickhouse.openAsNotebook",
           "when": "editorLangId == clickhouse || editorLangId == sql"
+        },
+        {
+          "command": "clickhouse.resetRunbookParameters",
+          "when": "notebookType == clickhouse-notebook"
+        },
+        {
+          "command": "clickhouse.openRunbookTemplate"
         }
       ],
       "view/title": [

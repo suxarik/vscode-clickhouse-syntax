@@ -2,6 +2,65 @@
 
 All notable changes to the ClickHouse SQL Syntax extension will be documented in this file.
 
+## [2.1.0] - 2026-08-29
+
+Runbooks. Prose, a query, its output, then the next step - which is how incident and
+capacity work against `system.query_log`, `system.parts` and `system.merges` actually
+goes, and the one thing a SQL editor genuinely cannot do.
+
+### Added
+
+#### Notebooks
+
+- **A notebook is a plain `.sql` file** with `-- %%` cell markers. No JSON container: the
+  file stays a script you can pipe to `clickhouse-client`, diffs stay readable, and an
+  existing `.sql` file becomes a notebook with no conversion step (*Open as Runbook*, or
+  Open With). `*.runbook.sql` and `*.chnb.sql` open as notebooks by default; nothing else
+  is taken over.
+- **Outputs are never written to the file.** Not a promise about the code - the format has
+  nowhere to put one. A file that persists query results is a way for production rows to
+  end up in a commit.
+- **One kernel per connection profile.** VS Code's kernel picker *is* the profile picker,
+  and each kernel says what it is allowed to do, not just where it points. Per-cell
+  profiles would let one file quietly span environments.
+- **The same safety model as the editor**, because it is the same code: a cell goes
+  through the gate, so a read-only profile refuses a write in a notebook exactly as it
+  does in a `.sql` file. Interrupt sends `KILL QUERY`. Cells run in order and stop at the
+  first failure, because a runbook is a sequence.
+- **The result grid, unmodified**, as a notebook output renderer - its own ESM bundle in
+  its own iframe with no `vscode` API. Sorting, filtering and nested-cell expansion all
+  work; copy and export send the finished text back over renderer messaging.
+
+#### Runbooks
+
+- **Three templates that already know the system tables**, each verified against a real
+  server: *Why is this cluster slow*, *Which parts are not merging*, *What is my query
+  doing*. **ClickHouse: Open a Runbook Template**.
+- **Parameter cells.** `{name:Type}` placeholders are prompted for once per notebook and
+  sent as ClickHouse's own `param_<name>`, so the server substitutes them with the
+  declared type - a date typed into a box can never be an injection. Values live for the
+  session only, like the outputs. **ClickHouse: Reset Runbook Parameters** asks again.
+- **Charts** for a two-column result: a label and a number gives bars, a time and a number
+  gives a line. Drawn as inline SVG in the theme's own colours - no library, because the
+  webview's CSP forbids loading one and a bar chart is not worth three hundred kilobytes.
+  The toggle only appears when the result is actually chartable, and it follows the filter
+  and sort, so what is drawn is what the rows above it would have shown.
+
+### Fixed
+
+- Cells are now statement-terminated when another query follows. Piping the first draft to
+  a real `clickhouse-client` read `LIMIT 10`, a comment and the next `SELECT` as one
+  malformed statement. The last cell is left alone, so a plain script still round-trips
+  byte for byte.
+
+### Changed
+
+- `GRID_STYLE` moved out of `resultsPanel.ts`, which imports `vscode` and so cannot be
+  reached from a renderer. The webview and the notebook now share one stylesheet.
+- Query execution goes through a `ResultSink` seam, so the result panel and a notebook
+  cell are two destinations for one implementation rather than two implementations.
+- Categories gain *Data Science* and *Notebooks*.
+
 ## [2.0.0] - 2026-08-28
 
 The connection release. Everything up to now made the editor understand ClickHouse; this

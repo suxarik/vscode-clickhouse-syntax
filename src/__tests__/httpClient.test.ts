@@ -115,6 +115,30 @@ describe('request shape', () => {
         expect(query().get('readonly')).toBeNull();
     });
 
+    it('sends a parameter as ClickHouse\'s own param_, not spliced into the SQL', async () => {
+        stubFetch(NAMES_TYPES_ROWS);
+        const client = new ClickHouseClient(CONNECTION);
+        await client.query('SELECT {start:Date}', { parameters: { start: '2026-01-01' } });
+        expect(query().get('param_start')).toBe('2026-01-01');
+        // Verified against a real server: an unbound one is refused with
+        // UNKNOWN_QUERY_PARAMETER rather than silently running wrong.
+    });
+
+    it('lets a parameter carry a value that would be an injection if pasted in', async () => {
+        stubFetch(NAMES_TYPES_ROWS);
+        const client = new ClickHouseClient(CONNECTION);
+        await client.query('SELECT {kind:String}', { parameters: { kind: "'; DROP TABLE t; --" } });
+        expect(query().get('param_kind')).toBe("'; DROP TABLE t; --");
+    });
+
+    it('does not let a parameter shadow a profile setting', async () => {
+        stubFetch(NAMES_TYPES_ROWS);
+        const connection = { ...CONNECTION, settings: { max_threads: '4' } };
+        await new ClickHouseClient(connection).query('SELECT 1', { parameters: { max_threads: '99' } });
+        expect(query().get('max_threads')).toBe('4');
+        expect(query().get('param_max_threads')).toBe('99');
+    });
+
     it('applies row and time limits', async () => {
         stubFetch(NAMES_TYPES_ROWS);
         await new ClickHouseClient(CONNECTION).query('SELECT 1', { maxRows: 1000, maxExecutionTime: 30 });

@@ -34,6 +34,29 @@ credential store, never to `settings.json`.
 See **[docs/connections.md](docs/connections.md)** for profiles, token auth, TLS, the
 safety flags, and how to read a failed diagnosis.
 
+### 📓 Runbooks
+
+Incident work is prose, a query, its output, then the next step. **ClickHouse:
+Open a Runbook Template** starts you with one that already knows the system
+tables — *why is this cluster slow*, *which parts are not merging*, *what is my
+query doing*.
+
+A runbook is a **plain `.sql` file** with `-- %%` cell markers. No JSON
+container: it stays a script you can pipe to `clickhouse-client`, diffs stay
+readable, and any `.sql` file opens as one (*Open as Runbook*). `*.runbook.sql`
+opens as a notebook by default; nothing else is taken over.
+
+- **Outputs are never written to the file.** The format has nowhere to put one —
+  a file that persists query results is a way for production rows to end up in a
+  commit.
+- **The kernel picker is the connection picker**, one per profile, each saying
+  what it is allowed to do. A cell goes through the same gate as the editor, so
+  a read-only profile refuses a write here too.
+- **Parameters.** `{start:Date}` is prompted for once and sent as ClickHouse's
+  own query parameter, so the server substitutes it with the declared type.
+- **Charts** for a two-column result — a label and a number, or a time and a
+  number. Inline SVG in your theme's colours.
+
 ### 🧭 Understand a query before you run it
 
 - **EXPLAIN as a plan, not as text** — `PLAN indexes = 1`, `PIPELINE`, `ESTIMATE`,

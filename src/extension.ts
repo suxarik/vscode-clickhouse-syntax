@@ -104,7 +104,7 @@ export function activate(context: vscode.ExtensionContext) {
         ...registerExplorerCommands(explorer, queryRunner, analysisCache, schemaSync),
         ...registerExplainCommands(connections, analysisCache, explainProvider),
         ...registerHistoryCommands(queryHistory, queryRunner, connections, analysisCache, validator),
-        ...registerNotebook(connections, queryRunner, analysisCache),
+        ...registerNotebook(connections, queryRunner, analysisCache, context.extensionUri),
         connections.onDidChangeActiveProfile(() => explorer.reset())
     );
 
