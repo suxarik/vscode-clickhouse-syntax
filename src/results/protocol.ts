@@ -25,13 +25,14 @@ export interface ResultHeader {
     query: string;
     /** Profile the query ran against. */
     profile: string;
-    columns: ColumnMeta[];
     queryId: string;
 }
 
 /** Host → view. */
 export type HostMessage =
     | { type: 'begin'; header: ResultHeader }
+    /** Sent once, as soon as the server has named the columns. */
+    | { type: 'columns'; columns: ColumnMeta[] }
     | { type: 'rows'; rows: unknown[][]; total: number }
     | { type: 'end'; statistics: ResultStatistics; truncated: boolean }
     | { type: 'error'; message: string; code?: number }

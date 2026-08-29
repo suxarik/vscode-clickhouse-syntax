@@ -363,11 +363,19 @@ describe('transport failures from Node http', () => {
         await expect(new ClickHouseClient(CONNECTION).query('SELECT 1')).rejects.toThrow(/Nothing is listening/);
     });
 
-    it('explains a timeout reported the Node way', async () => {
+    it('distinguishes a server that never answers from one we cannot reach', async () => {
         (globalThis as unknown as { fetch: unknown }).fetch = jest.fn(async () => {
             throw Object.assign(new Error('timeout'), { code: 'ETIMEDOUT' });
         });
-        await expect(new ClickHouseClient(CONNECTION).query('SELECT 1')).rejects.toThrow(/Timed out/);
+        // The request was accepted, so blaming the connection would mislead.
+        await expect(new ClickHouseClient(CONNECTION).query('SELECT 1')).rejects.toThrow(/never answered it/);
+    });
+
+    it('still calls a genuine connect timeout what it is', async () => {
+        (globalThis as unknown as { fetch: unknown }).fetch = jest.fn(async () => {
+            throw Object.assign(new Error('connect timeout'), { code: 'UND_ERR_CONNECT_TIMEOUT' });
+        });
+        await expect(new ClickHouseClient(CONNECTION).query('SELECT 1')).rejects.toThrow(/Timed out connecting/);
     });
 });
 

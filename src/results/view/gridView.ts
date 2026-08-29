@@ -95,7 +95,7 @@ export class GridView {
         switch (message.type) {
             case 'begin':
                 this.state = {
-                    columns: message.header.columns,
+                    columns: [],
                     rows: [],
                     order: [],
                     filter: this.state.filter,
@@ -105,6 +105,14 @@ export class GridView {
                     profile: message.header.profile,
                     query: message.header.query,
                 };
+                this.renderHead();
+                this.renderAll();
+                break;
+
+            case 'columns':
+                // Columns arrive after `begin`, once the server has named them.
+                // The rows already streamed in must survive this.
+                this.state.columns = message.columns;
                 this.renderHead();
                 this.renderAll();
                 break;
@@ -141,7 +149,13 @@ export class GridView {
     // ── Events ───────────────────────────────────────────────────────────────
 
     private bindEvents(): void {
-        this.elements.scroller.addEventListener('scroll', () => this.renderBody());
+        this.elements.scroller.addEventListener('scroll', () => {
+            this.renderBody();
+            // The header is outside the scroller so it stays put vertically.
+            // Horizontally it has to follow, or the labels stop lining up with
+            // the columns underneath them.
+            this.elements.head.scrollLeft = this.elements.scroller.scrollLeft;
+        });
 
         this.elements.filter.addEventListener('input', () => {
             this.state.filter = this.elements.filter.value;
@@ -245,6 +259,8 @@ export class GridView {
 
         this.elements.spacer.style.height = `${window_.totalHeight}px`;
         this.elements.table.style.transform = `translateY(${window_.offsetTop}px)`;
+        // Re-rendering can reset the offset, so keep the header aligned.
+        this.elements.head.scrollLeft = this.elements.scroller.scrollLeft;
 
         const fragment = document.createDocumentFragment();
         for (let position = window_.start; position < window_.end; position++) {

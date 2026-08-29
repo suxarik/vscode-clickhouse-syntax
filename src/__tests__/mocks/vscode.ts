@@ -411,6 +411,7 @@ export const window = {
     ),
     onDidChangeActiveTextEditor: jest.fn(disposable),
     registerTreeDataProvider: jest.fn(disposable),
+    createTreeView: jest.fn(() => ({ message: undefined as string | undefined, dispose: jest.fn() })),
     activeTextEditor: undefined as unknown,
 };
 

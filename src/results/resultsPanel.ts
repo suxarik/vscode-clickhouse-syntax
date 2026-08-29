@@ -6,7 +6,7 @@
  * renders.
  */
 import * as vscode from 'vscode';
-import { HostMessage, ResultHeader, ResultStatistics, SerializationFormat, ViewMessage } from './protocol';
+import { ColumnMeta, HostMessage, ResultHeader, ResultStatistics, SerializationFormat, ViewMessage } from './protocol';
 import { FILE_EXTENSION, serialize } from './serialize';
 
 export interface PanelCallbacks {
@@ -28,7 +28,10 @@ export class ResultsPanel implements vscode.Disposable {
 
     /** Kept so copy and export can serialise without asking the view. */
     private header: ResultHeader | undefined;
+    private columns: ColumnMeta[] = [];
     private rows: unknown[][] = [];
+    private readonly log = vscode.window.createOutputChannel('ClickHouse Results');
+    private loadWatchdog: ReturnType<typeof setTimeout> | undefined;
 
     constructor(private readonly extensionUri: vscode.Uri) {}
 
@@ -77,7 +80,10 @@ export class ResultsPanel implements vscode.Disposable {
         switch (message.type) {
             case 'ready':
                 this.ready = true;
-                for (const queued of this.queued) this.panel?.webview.postMessage(queued);
+                if (this.loadWatchdog) clearTimeout(this.loadWatchdog);
+                this.loadWatchdog = undefined;
+                this.log.appendLine(`view ready; flushing ${this.queued.length} queued message(s)`);
+                for (const queued of this.queued) void this.panel?.webview.postMessage(queued);
                 this.queued = [];
                 break;
             case 'cancel':
@@ -94,7 +100,7 @@ export class ResultsPanel implements vscode.Disposable {
 
     private async copy(format: SerializationFormat): Promise<void> {
         if (!this.header) return;
-        const text = serialize({ columns: this.header.columns, rows: this.rows }, format);
+        const text = serialize({ columns: this.columns, rows: this.rows }, format);
         await vscode.env.clipboard.writeText(text);
         vscode.window.setStatusBarMessage(
             `ClickHouse: ${this.rows.length} row(s) copied as ${format.toUpperCase()}`,
@@ -110,19 +116,52 @@ export class ResultsPanel implements vscode.Disposable {
         });
         if (!target) return;
 
-        const text = serialize({ columns: this.header.columns, rows: this.rows }, format);
+        const text = serialize({ columns: this.columns, rows: this.rows }, format);
         await vscode.workspace.fs.writeFile(target, new TextEncoder().encode(text));
         vscode.window.showInformationMessage(`ClickHouse: result exported to ${target.fsPath}`);
     }
 
     private send(message: HostMessage): void {
         if (!this.panel) return;
+        const size = message.type === 'rows' ? ` (${message.rows.length} rows)` : '';
+        this.log.appendLine(`${this.ready ? 'send' : 'queue'} ${message.type}${size}`);
         // Messages sent before the view says it is ready would be dropped.
         if (!this.ready) this.queued.push(message);
         else void this.panel.webview.postMessage(message);
     }
 
+    /**
+     * A results view that never loads leaves a blank panel and no explanation.
+     * Say so rather than letting it look like an empty result.
+     */
+    private watchForLoad(): void {
+        if (this.ready || this.loadWatchdog) return;
+        this.loadWatchdog = setTimeout(() => {
+            this.loadWatchdog = undefined;
+            if (this.ready) return;
+            this.log.appendLine('view did not load within 5s; results cannot be displayed');
+            void vscode.window
+                .showErrorMessage(
+                    'ClickHouse: the results view did not load, so the result cannot be shown.',
+                    'Show Log'
+                )
+                .then(choice => {
+                    if (choice === 'Show Log') this.log.show(true);
+                });
+        }, 5000);
+    }
+
     // ── Public surface ───────────────────────────────────────────────────────
+
+    /** Recorded once, so a diagnosis does not have to guess the transport. */
+    noteTransport(name: string): void {
+        this.log.appendLine(`transport: ${name}`);
+    }
+
+    /** Progress notes from the client, for the diagnostics log. */
+    trace(note: string): void {
+        this.log.appendLine(`  ${note}`);
+    }
 
     begin(header: ResultHeader, callbacks: PanelCallbacks): void {
         const panel = this.ensurePanel();
@@ -131,12 +170,21 @@ export class ResultsPanel implements vscode.Disposable {
 
         this.callbacks = callbacks;
         this.header = header;
+        this.columns = [];
         this.rows = [];
+        this.log.appendLine(`--- ${header.profile}: ${header.query.replace(/\s+/g, ' ').slice(0, 80)}`);
         this.send({ type: 'begin', header });
+        this.watchForLoad();
+    }
+
+    setColumns(columns: ColumnMeta[]): void {
+        this.columns = columns;
+        this.send({ type: 'columns', columns });
     }
 
     appendRows(rows: unknown[][], total: number): void {
-        this.rows.push(...rows);
+        // Spreading a large array into push overflows the stack, so append in place.
+        for (const row of rows) this.rows.push(row);
         this.send({ type: 'rows', rows, total });
     }
 
@@ -153,6 +201,8 @@ export class ResultsPanel implements vscode.Disposable {
     }
 
     dispose(): void {
+        if (this.loadWatchdog) clearTimeout(this.loadWatchdog);
+        this.log.dispose();
         this.panel?.dispose();
         this.panel = undefined;
     }
@@ -194,7 +244,9 @@ body {
   border-bottom: 1px solid var(--ch-border); white-space: pre-wrap;
   font-family: var(--vscode-font-family);
 }
-.ch-head { overflow: hidden; border-bottom: 1px solid var(--ch-border); }
+.ch-head { overflow-x: hidden; overflow-y: hidden; border-bottom: 1px solid var(--ch-border); }
+.ch-head .ch-row { width: max-content; min-width: 100%; }
+.ch-body .ch-row { width: max-content; min-width: 100%; }
 .ch-scroller { flex: 1; overflow: auto; position: relative; }
 .ch-spacer { position: absolute; top: 0; left: 0; width: 1px; }
 .ch-table { position: absolute; top: 0; left: 0; right: 0; }

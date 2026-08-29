@@ -335,3 +335,82 @@ describe('LiveValidator', () => {
         expect(sets.at(-1)?.diagnostics).toEqual([]);
     });
 });
+
+describe('freshness', () => {
+    it('reports a live schema as live', async () => {
+        const { sync } = makeSync();
+        await sync.refresh({ silent: true });
+        expect(sync.getFreshness().fromCache).toBe(false);
+        expect(sync.getFreshness().lastError).toBeUndefined();
+        sync.dispose();
+    });
+
+    it('does not claim to be refreshing when it is not', async () => {
+        // A fresh cache needs no refresh, and the notice must not stick.
+        const { sync } = makeSync();
+        await sync.refresh({ silent: true });
+        sync.dispose();
+
+        const { sync: second } = makeSync();
+        await second.activate();
+        expect(second.getFreshness().refreshing).toBe(false);
+        second.dispose();
+    });
+
+    it('clears the refreshing flag once a refresh finishes', async () => {
+        const { sync } = makeSync();
+        await sync.refresh({ silent: true });
+        expect(sync.getFreshness().refreshing).toBe(false);
+        sync.dispose();
+    });
+
+    it('clears the refreshing flag when a refresh fails', async () => {
+        const { sync } = makeSync();
+        served.fail = new Error('boom');
+        await sync.refresh({ silent: true });
+        expect(sync.getFreshness().refreshing).toBe(false);
+        sync.dispose();
+    });
+
+    it('records that a schema came off disk', async () => {
+        const { sync } = makeSync();
+        await sync.refresh({ silent: true });
+        sync.dispose();
+
+        const { sync: second } = makeSync();
+        await second.activate();
+        expect(second.getFreshness().fromCache).toBe(true);
+        second.dispose();
+    });
+
+    it('records why a background refresh failed', async () => {
+        // This is what let a stale schema pass for a working connection.
+        const { sync } = makeSync();
+        served.fail = new Error('never answered');
+        await sync.refresh({ silent: true });
+        expect(sync.getFreshness().lastError).toContain('never answered');
+        sync.dispose();
+    });
+
+    it('announces a change in freshness', async () => {
+        const { sync } = makeSync();
+        const seen: Array<string | undefined> = [];
+        sync.onDidChangeFreshness(freshness => seen.push(freshness.lastError));
+        served.fail = new Error('boom');
+        await sync.refresh({ silent: true });
+        expect(seen.some(error => error?.includes('boom'))).toBe(true);
+        sync.dispose();
+    });
+
+    it('clears the failure once a refresh succeeds', async () => {
+        const { sync } = makeSync();
+        served.fail = new Error('boom');
+        await sync.refresh({ silent: true });
+        expect(sync.getFreshness().lastError).toBeDefined();
+
+        served.fail = undefined;
+        await sync.refresh({ silent: true });
+        expect(sync.getFreshness().lastError).toBeUndefined();
+        sync.dispose();
+    });
+});

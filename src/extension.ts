@@ -18,6 +18,7 @@ import { RULES } from './lint/engine';
 import { ConnectionManager } from './client/connectionManager';
 import { registerConnectionCommands } from './client/commands';
 import { registerConnectionSetupCommands } from './client/connectionSetup';
+import { registerDiagnosticsCommand } from './client/diagnostics';
 import { ResultsPanel } from './results/resultsPanel';
 import { QueryRunner } from './client/queryRunner';
 import { registerRunCodeLens, registerRunCommands } from './client/runCommands';
@@ -68,7 +69,8 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         connections,
         ...registerConnectionCommands(connections),
-        ...registerConnectionSetupCommands(connections)
+        ...registerConnectionSetupCommands(connections),
+        registerDiagnosticsCommand(connections)
     );
     const detector = new LanguageDetector(context);
     context.subscriptions.push(schemaManager, detector);
@@ -88,6 +90,7 @@ export function activate(context: vscode.ExtensionContext) {
     // ── Live schema, explorer, EXPLAIN, history, server validation ──
     const schemaSync = new SchemaSync(context, connections, schemaManager, analysisCache);
     const explorer = new ExplorerProvider(schemaManager, connections);
+    const treeView = vscode.window.createTreeView('clickhouseExplorer', { treeDataProvider: explorer });
     const liveDiagnostics = createLiveDiagnosticCollection();
     const validator = new LiveValidator(connections, analysisCache, liveDiagnostics);
     const explainProvider = new ExplainDocumentProvider();
@@ -95,14 +98,33 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         schemaSync,
         liveDiagnostics,
-        vscode.window.registerTreeDataProvider('clickhouseExplorer', explorer),
+        treeView,
         ...registerExplorerCommands(explorer, queryRunner, analysisCache, schemaSync),
         ...registerExplainCommands(connections, analysisCache, explainProvider),
         ...registerHistoryCommands(queryHistory, queryRunner, connections, analysisCache, validator),
         connections.onDidChangeActiveProfile(() => explorer.reset())
     );
 
-    void schemaSync.activate().then(() => explorer.refresh());
+    // A cached schema must never look like a live one.
+    const describeFreshness = () => {
+        const freshness = schemaSync.getFreshness();
+        const when = freshness.fetchedAt ? new Date(freshness.fetchedAt).toLocaleString() : undefined;
+
+        if (freshness.lastError) {
+            treeView.message = `Showing a cached schema${when ? ` from ${when}` : ''}. Refresh failed: ${freshness.lastError}`;
+        } else if (freshness.refreshing) {
+            treeView.message = 'Refreshing the schema…';
+        } else {
+            // A cache that is current is not worth a permanent notice.
+            treeView.message = undefined;
+        }
+    };
+    context.subscriptions.push(schemaSync.onDidChangeFreshness(describeFreshness));
+
+    void schemaSync.activate().then(() => {
+        explorer.refresh();
+        describeFreshness();
+    });
 
     const diagnosticCollection = createDiagnosticCollection();
     const diagnostics = new DiagnosticManager(diagnosticCollection, analysisCache, schemaManager, catalog);

@@ -24,10 +24,16 @@ export interface QueryOptions {
     /** Stop reading after this many rows. 0 reads everything. */
     maxRows?: number;
     maxExecutionTime?: number;
+    /** Called once, as soon as the column names and types are known. */
+    onColumns?: (columns: ColumnMeta[]) => void;
     /** Called as rows arrive, for progressive rendering. */
     onRows?: (rows: unknown[][], total: number) => void;
     /** Overrides the profile's database for this query. */
     database?: string;
+    /** Client-side deadline. Defaults to the server limit plus a margin. */
+    timeoutMs?: number;
+    /** Progress notes for the diagnostics log. */
+    onTrace?: (note: string) => void;
 }
 
 const STREAM_FORMAT = 'JSONCompactEachRowWithNamesAndTypes';
@@ -66,8 +72,16 @@ export function parseServerError(body: string, httpStatus: number): ClickHouseEr
 export function describeTransportFailure(error: unknown, url: string): ClickHouseError {
     const target = url.split('?')[0];
 
-    if (error instanceof DOMException && error.name === 'AbortError') {
+    if (error instanceof Error && (error as { code?: string }).code === 'ABORT_ERR') {
         return new ClickHouseError('The query was cancelled.');
+    }
+
+    if (error instanceof Error && error.name === 'AbortError') {
+        const reason = (error as { cause?: unknown }).cause;
+        const timedOut = reason instanceof Error && reason.message === 'timeout';
+        return new ClickHouseError(
+            timedOut ? `${target} did not respond in time.` : 'The query was cancelled.'
+        );
     }
 
     // Node's http puts the code on the error itself; undici buries it in
@@ -92,9 +106,13 @@ export function describeTransportFailure(error: unknown, url: string): ClickHous
             return new ClickHouseError(`The host in ${target} could not be resolved.`);
         case 'ECONNRESET':
             return new ClickHouseError(`The connection to ${target} was reset. If the server speaks HTTPS, set "protocol": "https".`);
-        case 'ETIMEDOUT':
         case 'UND_ERR_CONNECT_TIMEOUT':
             return new ClickHouseError(`Timed out connecting to ${target}.`);
+        case 'ETIMEDOUT':
+            return new ClickHouseError(
+                `${target} accepted the request but never answered it. ` +
+                    `The server is reachable, so this is the editor's HTTP layer rather than ClickHouse.`
+            );
         case 'DEPTH_ZERO_SELF_SIGNED_CERT':
         case 'SELF_SIGNED_CERT_IN_CHAIN':
         case 'UNABLE_TO_VERIFY_LEAF_SIGNATURE':
@@ -135,6 +153,22 @@ export class ClickHouseClient {
         private readonly connection: ResolvedConnection,
         private readonly sender: HttpSender = defaultSender()
     ) {}
+
+    /** Which transport this client is using, for diagnostics. */
+    get transportName(): string {
+        return this.sender.name;
+    }
+
+    /**
+     * Client-side deadline. The server's own `max_execution_time` should fire
+     * first; this exists so a connection that stalls before the server ever
+     * sees the query cannot hang the UI forever.
+     */
+    private deadline(options: QueryOptions): number {
+        if (options.timeoutMs !== undefined) return options.timeoutMs;
+        const serverLimit = options.maxExecutionTime && options.maxExecutionTime > 0 ? options.maxExecutionTime : 60;
+        return (serverLimit + 15) * 1000;
+    }
 
     private buildUrl(options: QueryOptions): string {
         const params = new URLSearchParams();
@@ -178,32 +212,75 @@ export class ClickHouseClient {
         const started = Date.now();
 
         const url = this.buildUrl({ ...options, queryId });
-        let response: SendResponse;
+        const trace = options.onTrace ?? (() => undefined);
+
+        // One deadline for the whole exchange, not just the response headers:
+        // a body that stops arriving mid-stream would otherwise hang forever.
+        // The flag matters because aborting is also how cancellation works, and
+        // reporting a timeout as "cancelled" sends anyone debugging it the
+        // wrong way entirely.
+        const controller = new AbortController();
+        let deadlineFired = false;
+        options.signal?.addEventListener('abort', () => controller.abort(), { once: true });
+        const deadline = this.deadline(options);
+        const timer =
+            deadline > 0
+                ? setTimeout(() => {
+                      deadlineFired = true;
+                      controller.abort();
+                  }, deadline)
+                : undefined;
+
         try {
-            response = await this.sender.send({
-                url,
-                method: 'POST',
-                headers: this.headers(),
-                body: `${sql}\nFORMAT ${STREAM_FORMAT}`,
-                signal: options.signal,
-            });
-        } catch (error) {
-            throw describeTransportFailure(error, url);
-        }
+            let response: SendResponse;
+            trace(`sending to ${url.split('?')[0]} via ${this.sender.name}`);
+            try {
+                response = await this.sender.send({
+                    url,
+                    method: 'POST',
+                    headers: this.headers(),
+                    body: `${sql}\nFORMAT ${STREAM_FORMAT}`,
+                    signal: controller.signal,
+                    onTrace: options.onTrace,
+                });
+            } catch (error) {
+                if (deadlineFired) {
+                    throw new ClickHouseError(
+                        `${url.split('?')[0]} did not answer within ${Math.round(deadline / 1000)}s.`
+                    );
+                }
+                throw describeTransportFailure(error, url);
+            }
+            trace(`response ${response.status}`);
 
-        if (!response.ok) {
-            throw parseServerError(await response.text(), response.status);
-        }
+            if (!response.ok) {
+                throw parseServerError(await response.text(), response.status);
+            }
 
-        const { columns, rows, truncated } = await this.readRows(response, options);
-        return {
-            queryId,
-            columns,
-            rows,
-            truncated,
-            elapsedMs: Date.now() - started,
-            summary: parseSummary(response.header('X-ClickHouse-Summary')),
-        };
+            let read;
+            try {
+                read = await this.readRows(response, options);
+            } catch (error) {
+                if (deadlineFired) {
+                    throw new ClickHouseError(
+                        `${url.split('?')[0]} stopped sending the result partway through.`
+                    );
+                }
+                throw error;
+            }
+            const { columns, rows, truncated } = read;
+            trace(`read ${rows.length} row(s), ${columns.length} column(s)`);
+            return {
+                queryId,
+                columns,
+                rows,
+                truncated,
+                elapsedMs: Date.now() - started,
+                summary: parseSummary(response.header('X-ClickHouse-Summary')),
+            };
+        } finally {
+            if (timer !== undefined) clearTimeout(timer);
+        }
     }
 
     /**
@@ -220,6 +297,7 @@ export class ClickHouseClient {
                 headers: this.headers(),
                 body: sql,
                 signal: options.signal,
+                timeoutMs: this.deadline(options),
             });
         } catch (error) {
             throw describeTransportFailure(error, url);
@@ -265,8 +343,12 @@ export class ClickHouseClient {
                 return true;
             }
             if (lineNumber === 0) names = parsed as string[];
-            else if (lineNumber === 1) types = parsed as string[];
-            else if (rows.length < limit) rows.push(parsed as unknown[]);
+            else if (lineNumber === 1) {
+                types = parsed as string[];
+                options.onColumns?.(
+                    names.map((name, index) => ({ name, type: types[index] ?? 'Unknown' }))
+                );
+            } else if (rows.length < limit) rows.push(parsed as unknown[]);
             else {
                 truncated = true;
                 return false;
@@ -275,8 +357,10 @@ export class ClickHouseClient {
             return true;
         };
 
+        const trace = options.onTrace ?? (() => undefined);
         const stream = response.chunks();
         if (!stream) {
+            trace('body is not streamable; reading it whole');
             for (const line of (await response.text()).split('\n')) {
                 if (!handleLine(line.trim())) break;
             }
@@ -284,8 +368,11 @@ export class ClickHouseClient {
             const decoder = new TextDecoder();
             let buffer = '';
             let batchStart = 0;
+            let chunkCount = 0;
 
             for await (const chunk of stream) {
+                if (chunkCount === 0) trace('first chunk received');
+                chunkCount++;
                 buffer += decoder.decode(chunk, { stream: true });
 
                 let newline: number;
@@ -305,6 +392,7 @@ export class ClickHouseClient {
                 }
                 if (stop) break;
             }
+            trace(`stream ended after ${chunkCount} chunk(s)`);
             if (!truncated && buffer.trim()) handleLine(buffer.trim());
         }
 

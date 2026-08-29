@@ -288,3 +288,29 @@ describe('cancellation', () => {
         expect(requests.some(request => request.body.startsWith('KILL QUERY'))).toBe(true);
     });
 });
+
+describe('what the panel is told', () => {
+    /** Capture the messages the panel would send to the view. */
+    function capturingPanel() {
+        const panel = new ResultsPanel(vscode.Uri.file('/ext'));
+        const messages: Array<{ type: string; rows?: number }> = [];
+        (panel as unknown as { send(m: { type: string; rows?: unknown[] }): void }).send = m =>
+            messages.push({ type: m.type, rows: m.rows?.length });
+        return { panel, messages };
+    }
+
+    it('begins once and streams the rows once', async () => {
+        setConfig({ connections: [{ name: 'prof', host: 'localhost' }] });
+        const connections = new ConnectionManager(makeContext());
+        const { panel, messages } = capturingPanel();
+        const runner = new QueryRunner(connections, panel, analysisCache);
+
+        await runner.run(target('SELECT 1'));
+
+        // A second `begin` would reset the view and re-send every row.
+        expect(messages.filter(m => m.type === 'begin')).toHaveLength(1);
+        expect(messages.filter(m => m.type === 'columns')).toHaveLength(1);
+        expect(messages.filter(m => m.type === 'rows').reduce((n, m) => n + (m.rows ?? 0), 0)).toBe(1);
+        expect(messages.filter(m => m.type === 'end')).toHaveLength(1);
+    });
+});

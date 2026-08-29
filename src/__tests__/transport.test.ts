@@ -7,7 +7,7 @@
  */
 import * as http from 'node:http';
 import { AddressInfo } from 'node:net';
-import { createNodeSender, createSender, fetchSender } from '../client/transport';
+import { createFallbackSender, createNodeSender, createSender, fetchSender, HttpSender } from '../client/transport';
 import { ClickHouseClient } from '../client/httpClient';
 import { ResolvedConnection } from '../client/types';
 
@@ -196,13 +196,208 @@ describe('the client over a real socket', () => {
 });
 
 describe('sender selection', () => {
-    it('prefers Node http where it exists', () => {
-        // In this environment Node's modules are present, so the desktop path
-        // is what gets chosen.
-        expect(createSender().name).toBe('node:http');
+    it('offers every candidate, preferring the unpatchable one', () => {
+        // Which of these the desktop host has broken varies, so all three are
+        // kept and the first that answers is remembered.
+        expect(createSender().name).toBe('node:http (direct) → node:http → fetch');
     });
 
     it('has a fetch sender for the web build', () => {
         expect(fetchSender.name).toBe('fetch');
+    });
+});
+
+describe('cancellation and deadlines', () => {
+    it('cancels an in-flight request through the signal', async () => {
+        handler = () => {
+            // Never respond, so only the abort can end this.
+        };
+        const controller = new AbortController();
+        const pending = sender.send({
+            url: base,
+            method: 'POST',
+            headers: {},
+            body: '',
+            signal: controller.signal,
+        });
+        setTimeout(() => controller.abort(), 20);
+        await expect(pending).rejects.toMatchObject({ code: 'ABORT_ERR' });
+    });
+
+    it('gives up on a server that never responds', async () => {
+        handler = () => {
+            // Silence. Without a deadline this would hang forever, which is
+            // exactly the failure that left the results panel blank.
+        };
+        await expect(
+            sender.send({ url: base, method: 'POST', headers: {}, body: '', timeoutMs: 100 })
+        ).rejects.toMatchObject({ code: 'ETIMEDOUT' });
+    });
+
+    it('does not fire the deadline for a request that answers', async () => {
+        const response = await sender.send({
+            url: base,
+            method: 'POST',
+            headers: {},
+            body: '',
+            timeoutMs: 2000,
+        });
+        expect(response.status).toBe(200);
+        expect(await response.text()).toBe('ok');
+    });
+
+    it('rejects immediately when the signal is already aborted', async () => {
+        const controller = new AbortController();
+        controller.abort();
+        await expect(
+            sender.send({ url: base, method: 'POST', headers: {}, body: '', signal: controller.signal })
+        ).rejects.toMatchObject({ code: 'ABORT_ERR' });
+    });
+});
+
+describe('bypassing a patched request function', () => {
+    it('constructs a ClientRequest directly when the class is available', () => {
+        // The desktop host wraps `http.request`; the class behind it is not
+        // wrapped, so that is what the sender reaches for.
+        expect(createNodeSender({ http, https: http } as never).name).toBe('node:http (direct)');
+    });
+
+    it('falls back to request() when the class is missing', () => {
+        const withoutClass = { request: http.request } as never;
+        expect(createNodeSender({ http: withoutClass, https: withoutClass }).name).toBe('node:http');
+    });
+
+    it('works either way against a real server', async () => {
+        for (const usePatchedRequest of [false, true]) {
+            const under = createNodeSender({ http, https: http } as never, { usePatchedRequest });
+            const response = await under.send({ url: base, method: 'POST', headers: {}, body: 'x' });
+            expect(response.status).toBe(200);
+            expect(await response.text()).toBe('ok');
+        }
+    });
+
+    it('streams a large body, not just a small one', async () => {
+        // Small replies fit in one buffer and can succeed while streaming is
+        // broken, so this deliberately spans many chunks.
+        const line = `${'x'.repeat(500)}\n`;
+        handler = (_request, response) => {
+            response.writeHead(200);
+            for (let i = 0; i < 500; i++) response.write(line);
+            response.end();
+        };
+        const response = await sender.send({ url: base, method: 'POST', headers: {}, body: '' });
+        let bytes = 0;
+        for await (const chunk of response.chunks()!) bytes += chunk.length;
+        expect(bytes).toBe(line.length * 500);
+    });
+});
+
+describe('transport fallback', () => {
+    /** A transport that always fails, to stand in for a broken one. */
+    function broken(name: string): HttpSender {
+        return {
+            name,
+            send: async () => {
+                throw Object.assign(new Error('never answered'), { code: 'ETIMEDOUT' });
+            },
+        };
+    }
+
+    it('uses the first transport that answers', async () => {
+        const composite = createFallbackSender([broken('a'), broken('b'), sender]);
+        const response = await composite.send({ url: base, method: 'POST', headers: {}, body: '' });
+        expect(response.status).toBe(200);
+        expect(await response.text()).toBe('ok');
+    });
+
+    it('sticks with the one that worked', async () => {
+        const attempts: string[] = [];
+        const composite = createFallbackSender([broken('a'), sender]);
+        await composite.send({ url: base, method: 'POST', headers: {}, body: '', onTrace: n => attempts.push(n) });
+
+        const afterFirst = attempts.length;
+        await composite.send({ url: base, method: 'POST', headers: {}, body: '', onTrace: n => attempts.push(n) });
+        // The second call goes straight to the winner, with nothing to report.
+        expect(attempts.length).toBe(afterFirst);
+    });
+
+    it('names the transport that answered', async () => {
+        const composite = createFallbackSender([broken('a'), sender]);
+        expect(composite.name).toContain('→');
+        await composite.send({ url: base, method: 'POST', headers: {}, body: '' });
+        expect(composite.name).toBe(sender.name);
+    });
+
+    it('reports every failure when none work', async () => {
+        const composite = createFallbackSender([broken('a'), broken('b')]);
+        await expect(
+            composite.send({ url: base, method: 'POST', headers: {}, body: '' })
+        ).rejects.toThrow(/No usable HTTP transport.*a:.*b:/s);
+    });
+
+    it('splits the deadline so one hang cannot use it all', async () => {
+        handler = () => {
+            // Never responds.
+        };
+        const started = Date.now();
+        await expect(
+            createFallbackSender([sender, sender]).send({
+                url: base,
+                method: 'POST',
+                headers: {},
+                body: '',
+                timeoutMs: 6000,
+            })
+        ).rejects.toThrow(/No usable HTTP transport/);
+        // Two candidates sharing 6s must not take 12s.
+        expect(Date.now() - started).toBeLessThan(9000);
+    }, 15000);
+
+    it('does not fall through once a response exists', async () => {
+        handler = (_request, response) => {
+            response.writeHead(500);
+            response.end('server error');
+        };
+        // A 500 is an answer, not a transport failure.
+        const composite = createFallbackSender([sender, broken('never-used')]);
+        const response = await composite.send({ url: base, method: 'POST', headers: {}, body: '' });
+        expect(response.status).toBe(500);
+    });
+});
+
+describe('address family selection', () => {
+    it('races IPv4 and IPv6 rather than committing to the first address', async () => {
+        // `localhost` resolves to ::1 first, and a host reachable only on IPv4
+        // would otherwise hang instead of falling back.
+        const seen: Array<Record<string, unknown>> = [];
+        const recording = {
+            ClientRequest: function (_url: string, options: Record<string, unknown>) {
+                seen.push(options);
+                return {
+                    on: () => undefined,
+                    write: () => undefined,
+                    end: () => undefined,
+                    destroy: () => undefined,
+                };
+            },
+        } as never;
+
+        const under = createNodeSender({ http: recording, https: recording });
+        void under.send({ url: 'http://localhost:1/', method: 'POST', headers: {}, body: '' });
+
+        expect(seen[0].autoSelectFamily).toBe(true);
+        expect(seen[0].autoSelectFamilyAttemptTimeout).toBe(500);
+    });
+
+    it('reaches a server bound only to IPv4 via localhost', async () => {
+        // The test server binds 127.0.0.1 only, so this fails outright without
+        // the family race.
+        const response = await sender.send({
+            url: base.replace('127.0.0.1', 'localhost'),
+            method: 'POST',
+            headers: {},
+            body: '',
+        });
+        expect(response.status).toBe(200);
     });
 });

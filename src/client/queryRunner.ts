@@ -144,11 +144,11 @@ export class QueryRunner {
         const controller = new AbortController();
 
         this.active = { client, queryId, controller };
+        this.panel.noteTransport(client.transportName);
         this.panel.begin(
             {
                 query: target.sql.length > 200 ? `${target.sql.slice(0, 199)}…` : target.sql,
                 profile: profileName,
-                columns: [],
                 queryId,
             },
             { onCancel: () => void this.cancel() }
@@ -163,20 +163,14 @@ export class QueryRunner {
                 readOnly: profile?.allowWrite !== true,
                 maxRows: config.get<number>('query.maxResultRows', 100_000),
                 maxExecutionTime: config.get<number>('query.maxExecutionTime', 60),
+                // Columns are known before any row arrives, and the rows are
+                // streamed once. Re-sending them at the end would double the
+                // traffic and throw away what the view had already drawn.
+                onColumns: columns => this.panel.setColumns(columns),
                 onRows: (rows, total) => this.panel.appendRows(rows, total),
+                onTrace: note => this.panel.trace(note),
             });
 
-            // `begin` had no columns yet; the header arrives with the first rows.
-            this.panel.begin(
-                {
-                    query: target.sql,
-                    profile: profileName,
-                    columns: result.columns,
-                    queryId,
-                },
-                { onCancel: () => void this.cancel() }
-            );
-            this.panel.appendRows(result.rows, result.rows.length);
             this.panel.end(
                 {
                     elapsedMs: result.elapsedMs,

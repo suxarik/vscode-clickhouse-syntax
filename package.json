@@ -213,13 +213,23 @@
         "icon": "$(add)"
       },
       {
-        "command": "clickhouse.editConnections",
-        "title": "Edit Connections",
+        "command": "clickhouse.removeConnection",
+        "title": "Remove Connection",
         "category": "ClickHouse"
       },
       {
-        "command": "clickhouse.removeConnection",
-        "title": "Remove Connection",
+        "command": "clickhouse.diagnoseConnection",
+        "title": "Diagnose Connection",
+        "category": "ClickHouse"
+      },
+      {
+        "command": "clickhouse.editConnection",
+        "title": "Edit Connection",
+        "category": "ClickHouse"
+      },
+      {
+        "command": "clickhouse.openConnectionSettings",
+        "title": "Open Connection Settings (JSON)",
         "category": "ClickHouse"
       }
     ],
@@ -345,11 +355,19 @@
           "when": "true"
         },
         {
-          "command": "clickhouse.editConnections",
+          "command": "clickhouse.removeConnection",
           "when": "true"
         },
         {
-          "command": "clickhouse.removeConnection",
+          "command": "clickhouse.diagnoseConnection",
+          "when": "true"
+        },
+        {
+          "command": "clickhouse.editConnection",
+          "when": "true"
+        },
+        {
+          "command": "clickhouse.openConnectionSettings",
           "when": "true"
         }
       ],
@@ -367,17 +385,27 @@
         {
           "command": "clickhouse.selectConnection",
           "when": "view == clickhouseExplorer",
-          "group": "1_connection"
+          "group": "1_connection@1"
         },
         {
-          "command": "clickhouse.editConnections",
+          "command": "clickhouse.editConnection",
           "when": "view == clickhouseExplorer",
-          "group": "1_connection"
+          "group": "1_connection@2"
         },
         {
           "command": "clickhouse.removeConnection",
           "when": "view == clickhouseExplorer",
-          "group": "1_connection"
+          "group": "1_connection@3"
+        },
+        {
+          "command": "clickhouse.diagnoseConnection",
+          "when": "view == clickhouseExplorer",
+          "group": "2_diagnose"
+        },
+        {
+          "command": "clickhouse.openConnectionSettings",
+          "when": "view == clickhouseExplorer",
+          "group": "3_advanced"
         }
       ],
       "view/item/context": [
