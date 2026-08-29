@@ -29,7 +29,9 @@ const common = {
     sourcemap: !production,
     sourcesContent: false,
     // Provided by the VS Code extension host, never bundled.
-    external: ['vscode'],
+    // node:* stays external: the desktop build requires it, and the web build
+    // catches the failing require and falls back to fetch.
+    external: ['vscode', 'node:http', 'node:https'],
     logLevel: 'silent',
     plugins: [problemMatcher],
 };
@@ -44,7 +46,7 @@ async function main() {
             format: 'iife',
             platform: 'browser',
             target: 'es2022',
-            external: [],
+            external: ['node:http', 'node:https'],
             outfile: 'dist/results.js',
         }),
         // The web build runs in a browser worker: no Node built-ins available.

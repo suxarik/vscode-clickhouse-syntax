@@ -11,6 +11,7 @@ module.exports = {
     coverageThreshold: {
         global: { statements: 70, branches: 70, functions: 65, lines: 70 },
     },
+    setupFiles: ['<rootDir>/src/__tests__/setup.ts'],
     moduleNameMapper: {
         '^vscode$': '<rootDir>/src/__tests__/mocks/vscode.ts',
     },

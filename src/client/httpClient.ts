@@ -10,6 +10,7 @@
  * cancelled mid-read.
  */
 import { ClickHouseError, ColumnMeta, QueryResult, QuerySummary, ResolvedConnection } from './types';
+import { defaultSender, HttpSender, SendResponse } from './transport';
 
 export interface QueryOptions {
     /** Supplied so the query can be cancelled with KILL QUERY. */
@@ -55,6 +56,57 @@ export function parseServerError(body: string, httpStatus: number): ClickHouseEr
     return new ClickHouseError(message, code, httpStatus);
 }
 
+/**
+ * Turn a transport failure into something a person can act on.
+ *
+ * `fetch` reports every network problem as the bare string "fetch failed" and
+ * hides the reason in `cause`, which is useless to someone staring at a
+ * notification. This unwraps it and says which address failed.
+ */
+export function describeTransportFailure(error: unknown, url: string): ClickHouseError {
+    const target = url.split('?')[0];
+
+    if (error instanceof DOMException && error.name === 'AbortError') {
+        return new ClickHouseError('The query was cancelled.');
+    }
+
+    // Node's http puts the code on the error itself; undici buries it in
+    // `cause`. Look in both, or the mapping below is dead on one of the two
+    // transports.
+    const cause = (error as { cause?: unknown }).cause;
+    const codeOf = (value: unknown): string | undefined =>
+        value && typeof value === 'object' && 'code' in value
+            ? String((value as { code: unknown }).code)
+            : undefined;
+    const code = codeOf(error) ?? codeOf(cause);
+    const causeMessage =
+        cause instanceof Error ? cause.message : cause !== undefined ? String(cause) : undefined;
+
+    switch (code) {
+        case 'ECONNREFUSED':
+            return new ClickHouseError(
+                `Nothing is listening at ${target}. Check the host and port, and that the server is running.`
+            );
+        case 'ENOTFOUND':
+        case 'EAI_AGAIN':
+            return new ClickHouseError(`The host in ${target} could not be resolved.`);
+        case 'ECONNRESET':
+            return new ClickHouseError(`The connection to ${target} was reset. If the server speaks HTTPS, set "protocol": "https".`);
+        case 'ETIMEDOUT':
+        case 'UND_ERR_CONNECT_TIMEOUT':
+            return new ClickHouseError(`Timed out connecting to ${target}.`);
+        case 'DEPTH_ZERO_SELF_SIGNED_CERT':
+        case 'SELF_SIGNED_CERT_IN_CHAIN':
+        case 'UNABLE_TO_VERIFY_LEAF_SIGNATURE':
+            return new ClickHouseError(`The TLS certificate at ${target} could not be verified (${code}).`);
+        default:
+            break;
+    }
+
+    const detail = causeMessage ?? (error instanceof Error ? error.message : String(error));
+    return new ClickHouseError(`Could not reach ${target} - ${detail}`);
+}
+
 /** `X-ClickHouse-Summary` is JSON with string-valued counters. */
 export function parseSummary(header: string | null): QuerySummary | undefined {
     if (!header) return undefined;
@@ -79,7 +131,10 @@ export function parseSummary(header: string | null): QuerySummary | undefined {
 }
 
 export class ClickHouseClient {
-    constructor(private readonly connection: ResolvedConnection) {}
+    constructor(
+        private readonly connection: ResolvedConnection,
+        private readonly sender: HttpSender = defaultSender()
+    ) {}
 
     private buildUrl(options: QueryOptions): string {
         const params = new URLSearchParams();
@@ -122,12 +177,19 @@ export class ClickHouseClient {
         const queryId = options.queryId ?? newQueryId();
         const started = Date.now();
 
-        const response = await fetch(this.buildUrl({ ...options, queryId }), {
-            method: 'POST',
-            headers: this.headers(),
-            body: `${sql}\nFORMAT ${STREAM_FORMAT}`,
-            signal: options.signal,
-        });
+        const url = this.buildUrl({ ...options, queryId });
+        let response: SendResponse;
+        try {
+            response = await this.sender.send({
+                url,
+                method: 'POST',
+                headers: this.headers(),
+                body: `${sql}\nFORMAT ${STREAM_FORMAT}`,
+                signal: options.signal,
+            });
+        } catch (error) {
+            throw describeTransportFailure(error, url);
+        }
 
         if (!response.ok) {
             throw parseServerError(await response.text(), response.status);
@@ -140,7 +202,7 @@ export class ClickHouseClient {
             rows,
             truncated,
             elapsedMs: Date.now() - started,
-            summary: parseSummary(response.headers.get('X-ClickHouse-Summary')),
+            summary: parseSummary(response.header('X-ClickHouse-Summary')),
         };
     }
 
@@ -149,12 +211,19 @@ export class ClickHouseClient {
      * Returns the server's response body, which is usually empty.
      */
     async execute(sql: string, options: QueryOptions = {}): Promise<string> {
-        const response = await fetch(this.buildUrl(options), {
-            method: 'POST',
-            headers: this.headers(),
-            body: sql,
-            signal: options.signal,
-        });
+        const url = this.buildUrl(options);
+        let response: SendResponse;
+        try {
+            response = await this.sender.send({
+                url,
+                method: 'POST',
+                headers: this.headers(),
+                body: sql,
+                signal: options.signal,
+            });
+        } catch (error) {
+            throw describeTransportFailure(error, url);
+        }
         const body = await response.text();
         if (!response.ok) throw parseServerError(body, response.status);
         return body;
@@ -176,7 +245,7 @@ export class ClickHouseClient {
      * Read the NDJSON stream: first line names, second line types, then rows.
      */
     private async readRows(
-        response: Response,
+        response: SendResponse,
         options: QueryOptions
     ): Promise<{ columns: ColumnMeta[]; rows: unknown[][]; truncated: boolean }> {
         const limit = options.maxRows && options.maxRows > 0 ? options.maxRows : Infinity;
@@ -206,44 +275,44 @@ export class ClickHouseClient {
             return true;
         };
 
-        if (!response.body) {
+        const stream = response.chunks();
+        if (!stream) {
             for (const line of (await response.text()).split('\n')) {
                 if (!handleLine(line.trim())) break;
             }
         } else {
-            const reader = response.body.getReader();
             const decoder = new TextDecoder();
             let buffer = '';
             let batchStart = 0;
 
-            try {
-                for (;;) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
-                    buffer += decoder.decode(value, { stream: true });
+            for await (const chunk of stream) {
+                buffer += decoder.decode(chunk, { stream: true });
 
-                    let newline: number;
-                    let stop = false;
-                    while ((newline = buffer.indexOf('\n')) >= 0) {
-                        const line = buffer.slice(0, newline).trim();
-                        buffer = buffer.slice(newline + 1);
-                        if (!handleLine(line)) {
-                            stop = true;
-                            break;
-                        }
+                let newline: number;
+                let stop = false;
+                while ((newline = buffer.indexOf('\n')) >= 0) {
+                    const line = buffer.slice(0, newline).trim();
+                    buffer = buffer.slice(newline + 1);
+                    if (!handleLine(line)) {
+                        stop = true;
+                        break;
                     }
-
-                    if (options.onRows && rows.length > batchStart) {
-                        options.onRows(rows.slice(batchStart), rows.length);
-                        batchStart = rows.length;
-                    }
-                    if (stop) break;
                 }
-                if (!truncated && buffer.trim()) handleLine(buffer.trim());
-            } finally {
-                // Releasing the reader lets the connection close on cancellation.
-                await reader.cancel().catch(() => undefined);
+
+                if (options.onRows && rows.length > batchStart) {
+                    options.onRows(rows.slice(batchStart), rows.length);
+                    batchStart = rows.length;
+                }
+                if (stop) break;
             }
+            if (!truncated && buffer.trim()) handleLine(buffer.trim());
+        }
+
+        // ClickHouse always sends the names and types lines, even for an empty
+        // result. Getting neither means the response was cut short, which must
+        // not be reported as "0 rows".
+        if (lineNumber === 0) {
+            throw new ClickHouseError('The server closed the connection before sending any results.');
         }
 
         const columns: ColumnMeta[] = names.map((name, index) => ({

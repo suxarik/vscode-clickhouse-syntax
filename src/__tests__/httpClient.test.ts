@@ -45,6 +45,7 @@ function stubFetch(body: string, init: { status?: number; headers?: Record<strin
                     read: async () =>
                         index < chunks.length ? { done: false, value: chunks[index++] } : { done: true, value: undefined },
                     cancel: async () => undefined,
+                    releaseLock: () => undefined,
                 }),
             },
         };
@@ -284,5 +285,106 @@ describe('numeric precision', () => {
             settings: { output_format_json_quote_64bit_integers: 0 },
         }).query('SELECT 1');
         expect(query().get('output_format_json_quote_64bit_integers')).toBe('0');
+    });
+});
+
+describe('transport failures', () => {
+    /** Build the error the client would report for a given fetch rejection. */
+    async function failureFor(thrown: unknown): Promise<Error> {
+        (globalThis as unknown as { fetch: unknown }).fetch = jest.fn(async () => {
+            throw thrown;
+        });
+        try {
+            await new ClickHouseClient(CONNECTION).query('SELECT 1');
+            throw new Error('expected a failure');
+        } catch (error) {
+            return error as Error;
+        }
+    }
+
+    function withCause(code: string): Error {
+        // This is the shape undici produces: a bare message with the real
+        // reason buried in `cause`.
+        const error = new TypeError('fetch failed');
+        (error as unknown as { cause: unknown }).cause = Object.assign(new Error('inner'), { code });
+        return error;
+    }
+
+    it('never reports the bare "fetch failed"', async () => {
+        const error = await failureFor(withCause('ECONNREFUSED'));
+        expect(error.message).not.toBe('fetch failed');
+    });
+
+    it('explains a refused connection, and names the address', async () => {
+        const error = await failureFor(withCause('ECONNREFUSED'));
+        expect(error.message).toContain('Nothing is listening');
+        expect(error.message).toContain('http://ch.example:8123');
+    });
+
+    it('does not leak credentials into the message', async () => {
+        const error = await failureFor(withCause('ECONNREFUSED'));
+        expect(error.message).not.toContain('secret');
+    });
+
+    it('explains an unresolvable host', async () => {
+        expect((await failureFor(withCause('ENOTFOUND'))).message).toContain('could not be resolved');
+    });
+
+    it('suggests https when the connection is reset', async () => {
+        expect((await failureFor(withCause('ECONNRESET'))).message).toContain('https');
+    });
+
+    it('explains a timeout', async () => {
+        expect((await failureFor(withCause('UND_ERR_CONNECT_TIMEOUT'))).message).toContain('Timed out');
+    });
+
+    it('explains a certificate that cannot be verified', async () => {
+        expect((await failureFor(withCause('SELF_SIGNED_CERT_IN_CHAIN'))).message).toContain('certificate');
+    });
+
+    it('falls back to the cause when the code is unfamiliar', async () => {
+        const error = new TypeError('fetch failed');
+        (error as unknown as { cause: unknown }).cause = new Error('something specific went wrong');
+        expect((await failureFor(error)).message).toContain('something specific went wrong');
+    });
+
+    it('falls back to the error itself when there is no cause', async () => {
+        expect((await failureFor(new TypeError('fetch failed'))).message).toContain('fetch failed');
+        expect((await failureFor(new TypeError('fetch failed'))).message).toContain('Could not reach');
+    });
+});
+
+describe('transport failures from Node http', () => {
+    /** Node's http module puts the code on the error, with no `cause`. */
+    it('explains a refused connection reported the Node way', async () => {
+        (globalThis as unknown as { fetch: unknown }).fetch = jest.fn(async () => {
+            throw Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:1'), { code: 'ECONNREFUSED' });
+        });
+        await expect(new ClickHouseClient(CONNECTION).query('SELECT 1')).rejects.toThrow(/Nothing is listening/);
+    });
+
+    it('explains a timeout reported the Node way', async () => {
+        (globalThis as unknown as { fetch: unknown }).fetch = jest.fn(async () => {
+            throw Object.assign(new Error('timeout'), { code: 'ETIMEDOUT' });
+        });
+        await expect(new ClickHouseClient(CONNECTION).query('SELECT 1')).rejects.toThrow(/Timed out/);
+    });
+});
+
+describe('truncated responses', () => {
+    it('does not pass a cut-short response off as an empty result', async () => {
+        // A legitimately empty result still carries its names and types lines,
+        // so nothing at all means the connection died.
+        stubFetch('');
+        await expect(new ClickHouseClient(CONNECTION).query('SELECT 1')).rejects.toThrow(
+            /closed the connection before sending any results/
+        );
+    });
+
+    it('still accepts a genuinely empty result', async () => {
+        stubFetch('["id"]\n["UInt64"]\n');
+        const result = await new ClickHouseClient(CONNECTION).query('SELECT id FROM t WHERE 0');
+        expect(result.rows).toEqual([]);
+        expect(result.columns).toHaveLength(1);
     });
 });
