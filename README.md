@@ -68,6 +68,22 @@ opens as a notebook by default; nothing else is taken over.
 - **17 lint rules**, each individually configurable, for what a plan will not tell you.
   See [docs/rules.md](docs/rules.md) or run **ClickHouse: Show Lint Rules**.
 
+### 🧱 dbt and migrations
+
+**dbt models parse.** `{{ ref('users') }}`, `{% if is_incremental() %}` and
+`{{ config(...) }}` no longer light a model up with errors — Jinja tags are read
+as tags, and the SQL around them is analysed normally. If your project has been
+compiled, `ref()` and `source()` resolve through `target/manifest.json`, so a
+model's columns are known and completion inside `ref('…')` offers model names.
+
+**ClickHouse: Compare Schema File with Server** diffs your schema file against
+the live server and opens the `ALTER TABLE` script. Anything that could lose
+data is written out but commented — nothing is applied for you.
+
+**ClickHouse: Scaffold a Table** writes the local table, the `Distributed` table
+in front of it, and an `AggregatingMergeTree` rollup with its materialized view,
+in the order they have to run.
+
 ### 🎨 Syntax Highlighting
 Full syntax highlighting for ClickHouse-specific constructs:
 - **ClickHouse data types**: `UInt8`, `UInt64`, `Float32`, `Float64`, `Decimal`, `String`, `FixedString`, `Date`, `DateTime`, `DateTime64`, `Array`, `Tuple`, `Map`, `Nested`, `Nullable`, `LowCardinality`, `IPv4`, `IPv6`, `UUID`, and more

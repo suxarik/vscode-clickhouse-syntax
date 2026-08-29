@@ -2,7 +2,7 @@
   "name": "clickhouse-syntax",
   "displayName": "ClickHouse SQL Syntax",
   "description": "ClickHouse SQL for VS Code: a real parser and scope binder, a catalog generated from ClickHouse itself, and a connection that lets you run, explain and profile queries in place.",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "publisher": "SuXarikisme",
   "icon": "images/clickhouse.png",
   "engines": {
@@ -28,7 +28,9 @@
     "diagnostics",
     "formatter",
     "notebook",
-    "runbook"
+    "runbook",
+    "dbt",
+    "migration"
   ],
   "galleryBanner": {
     "color": "#1A1A2E",
@@ -262,6 +264,18 @@
         "title": "Open a Runbook Template",
         "category": "ClickHouse",
         "icon": "$(book)"
+      },
+      {
+        "command": "clickhouse.diffSchema",
+        "title": "Compare Schema File with Server",
+        "category": "ClickHouse",
+        "icon": "$(diff)"
+      },
+      {
+        "command": "clickhouse.scaffoldTable",
+        "title": "Scaffold a Table",
+        "category": "ClickHouse",
+        "icon": "$(new-file)"
       }
     ],
     "menus": {
@@ -418,6 +432,12 @@
         },
         {
           "command": "clickhouse.openRunbookTemplate"
+        },
+        {
+          "command": "clickhouse.diffSchema"
+        },
+        {
+          "command": "clickhouse.scaffoldTable"
         }
       ],
       "view/title": [

@@ -2,6 +2,54 @@
 
 All notable changes to the ClickHouse SQL Syntax extension will be documented in this file.
 
+## [2.2.0] - 2026-08-29
+
+dbt models, and migrations you read before you run.
+
+### Added
+
+#### dbt
+
+- **dbt models parse.** `{{ … }}`, `{% … %}` and `{# … #}` are lexed whole and left
+  opaque, because a dbt model is not ClickHouse SQL until dbt has compiled it and guessing
+  at an expansion produces confident wrong answers. Control flow and comments are treated
+  as trivia so the SQL between them parses normally; a leading `{{ config(...) }}` is
+  skipped. Nine real dbt shapes — incremental models, `is_incremental()` blocks,
+  `{{ this }}`, source/ref joins, whitespace control, macros in the select list, `for`
+  loops, snapshot blocks, and an unterminated tag — all parse with zero diagnostics.
+- **`ref()` and `source()` resolve** through dbt's own `target/manifest.json`, so a
+  model's columns are known rather than guessed. The alias is used, since that is the name
+  that reaches the warehouse, and dbt's `schema` maps to what ClickHouse calls a database.
+  Seeds and snapshots are included; tests are not. Anything that is not plain string
+  arguments resolves to nothing rather than to a guess.
+- **The manifest is watched, not read once** — dbt rewrites it on every compile. A
+  half-written one is kept out rather than replacing a good one.
+- **Completion inside `{{ ref('…') }}`** offers model names, and `source('…', '…')`
+  narrows the second argument by the first.
+- `unknown-table` no longer fires on a tag the manifest cannot resolve. A warning on every
+  model in an uncompiled project only teaches people to ignore warnings.
+
+#### Migrations
+
+- **ClickHouse: Compare Schema File with Server** diffs the schema file against live
+  introspection and opens the `ALTER TABLE` script. The file is the intent, the server is
+  the fact. Anything that could lose data is written out but **commented** — uncommenting
+  is the correct amount of friction, and nothing is applied for you.
+- **ClickHouse: Scaffold a Table** writes the local table, the `Distributed` table in
+  front of it, and an `AggregatingMergeTree` rollup with its materialized view, in the
+  order they must run. Replicated engines use the `{shard}`/`{replica}` macro form so the
+  same DDL is correct on every replica.
+
+### Fixed
+
+- The diff no longer emits an `ALTER` that ClickHouse refuses. Running the generated
+  script against a real server surfaced `ALTER_OF_COLUMN_IS_FORBIDDEN`: a `MODIFY COLUMN`
+  on a column in the sorting key cannot work, because it would change the representation
+  of the primary key. That case now produces no statement and an explanation that the
+  table has to be rebuilt.
+- A single-node scaffold names the table plainly instead of `events_local` — a suffix
+  distinguishing it from nothing.
+
 ## [2.1.0] - 2026-08-29
 
 Runbooks. Prose, a query, its output, then the next step - which is how incident and

@@ -30,6 +30,7 @@ import { QueryHistory } from './client/history';
 import { registerHistoryCommands } from './client/historyCommands';
 import { registerNotebook } from './notebook';
 import { DbtProject } from './dbt/project';
+import { registerMigrationCommands } from './migrate/commands';
 import { createLiveDiagnosticCollection, LiveValidator } from './client/liveDiagnostics';
 import { registerStructureProviders } from './providers/structureProvider';
 import { registerSemanticTokensProvider } from './providers/semanticTokensProvider';
@@ -112,6 +113,7 @@ export function activate(context: vscode.ExtensionContext) {
         ...registerExplainCommands(connections, analysisCache, explainProvider),
         ...registerHistoryCommands(queryHistory, queryRunner, connections, analysisCache, validator),
         ...registerNotebook(connections, queryRunner, analysisCache, context.extensionUri),
+        ...registerMigrationCommands(connections, schemaManager),
         connections.onDidChangeActiveProfile(() => explorer.reset())
     );
 
