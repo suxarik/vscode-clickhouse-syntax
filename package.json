@@ -877,6 +877,63 @@
         "contents": "No tables loaded yet.\n[Reload Schema](command:clickhouse.refreshExplorer)\n[Test Connection](command:clickhouse.testConnection)\n",
         "when": "clickhouse.hasActiveConnection"
       }
+    ],
+    "walkthroughs": [
+      {
+        "id": "clickhouse.getStarted",
+        "title": "Get Started with ClickHouse",
+        "description": "Connect to a server, run a query, and read the plan - without leaving the editor.",
+        "steps": [
+          {
+            "id": "connect",
+            "title": "Connect to a server",
+            "description": "Add a connection profile. Credentials go to the OS credential store, and new profiles are read-only until you say otherwise.\n[Add Connection](command:clickhouse.addConnection)",
+            "media": {
+              "markdown": "media/walkthrough/connect.md"
+            },
+            "completionEvents": [
+              "onContext:clickhouse.hasConnections",
+              "onCommand:clickhouse.addConnection"
+            ]
+          },
+          {
+            "id": "explore",
+            "title": "Explore the schema",
+            "description": "Browse databases, tables and columns in the explorer. The same schema drives completion and diagnostics.\n[Open the Explorer](command:workbench.view.explorer)",
+            "media": {
+              "markdown": "media/walkthrough/explore.md"
+            },
+            "completionEvents": [
+              "onCommand:clickhouse.previewTable",
+              "onCommand:clickhouse.refreshExplorer"
+            ]
+          },
+          {
+            "id": "run",
+            "title": "Run a query",
+            "description": "Put the cursor in a statement and press Ctrl+Enter. Results stream in, and a million rows opens as fast as ten.\n[Run the Statement at the Cursor](command:clickhouse.runStatementAt)",
+            "media": {
+              "markdown": "media/walkthrough/run.md"
+            },
+            "completionEvents": [
+              "onCommand:clickhouse.runStatementAt",
+              "onCommand:clickhouse.runQuery"
+            ]
+          },
+          {
+            "id": "understand",
+            "title": "Understand it before it runs",
+            "description": "Read the plan, profile what actually happened, and let the lint rules catch what a plan will not.\n[Explain a Query](command:clickhouse.explainQuery)",
+            "media": {
+              "markdown": "media/walkthrough/understand.md"
+            },
+            "completionEvents": [
+              "onCommand:clickhouse.explainQuery",
+              "onCommand:clickhouse.profileLastQuery"
+            ]
+          }
+        ]
+      }
     ]
   },
   "scripts": {

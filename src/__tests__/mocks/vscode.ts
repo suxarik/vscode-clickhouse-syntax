@@ -325,8 +325,25 @@ export function __setConfig(values: Record<string, unknown>): void {
     configValues = values;
 }
 
+/**
+ * What `update()` has written, per target.
+ *
+ * Kept separate from `configValues` so `inspect()` can answer "which settings
+ * file does this profile live in?" - the question the edit and remove flows
+ * turn on.
+ */
+const configByTarget: Record<number, Record<string, unknown>> = { 1: {}, 2: {} };
+
 export function __resetConfig(): void {
     configValues = {};
+    configByTarget[1] = {};
+    configByTarget[2] = {};
+}
+
+/** Seed a value as though it were written to a particular settings file. */
+export function __setConfigAt(target: number, key: string, value: unknown): void {
+    configByTarget[target][key] = value;
+    configValues[key] = value;
 }
 
 const disposable = () => ({ dispose: jest.fn() });
@@ -338,10 +355,13 @@ export const workspace = {
         ),
         inspect: jest.fn((key: string) => ({
             key,
-            globalValue: configValues[key],
-            workspaceValue: undefined,
+            globalValue: key in configByTarget[1] ? configByTarget[1][key] : configValues[key],
+            workspaceValue: configByTarget[2][key],
         })),
-        update: jest.fn(),
+        update: jest.fn(async (key: string, value: unknown, target?: number) => {
+            configByTarget[target ?? 1][key] = value;
+            configValues[key] = value;
+        }),
     })),
     findFiles: jest.fn(async () => [] as Uri[]),
     fs: {
@@ -369,6 +389,45 @@ export const workspace = {
     })),
 };
 
+/**
+ * A quick pick that records its handlers, so a test can drive the picker the
+ * way a person would: press a button, accept an item, dismiss it.
+ */
+export function makeQuickPick() {
+    const handlers: Record<string, ((arg: never) => unknown)[]> = {};
+    const on = (name: string) => (handler: (arg: never) => unknown) => {
+        (handlers[name] ??= []).push(handler);
+        return { dispose: jest.fn() };
+    };
+    const fire = async (name: string, arg?: unknown) => {
+        for (const handler of handlers[name] ?? []) await handler(arg as never);
+    };
+    const picker = {
+        placeholder: '',
+        value: '',
+        matchOnDetail: false,
+        matchOnDescription: false,
+        items: [] as unknown[],
+        selectedItems: [] as unknown[],
+        title: '' as string | undefined,
+        buttons: [] as unknown[],
+        show: jest.fn(),
+        dispose: jest.fn(),
+        hide: jest.fn(() => void fire('hide')),
+        onDidTriggerItemButton: jest.fn(on('itemButton')),
+        onDidAccept: jest.fn(on('accept')),
+        onDidHide: jest.fn(on('hide')),
+        onDidChangeValue: jest.fn(on('changeValue')),
+        /** Test helpers: drive the picker the way a person would. */
+        triggerItemButton: (item: unknown, button?: unknown) => fire('itemButton', { item, button }),
+        accept: async (item?: unknown) => {
+            if (item) picker.selectedItems = [item];
+            await fire('accept');
+        },
+    };
+    return picker;
+}
+
 export const window = {
     showInformationMessage: jest.fn(),
     showWarningMessage: jest.fn(),
@@ -389,6 +448,7 @@ export const window = {
         dispose: jest.fn(),
     })),
     showQuickPick: jest.fn(),
+    createQuickPick: jest.fn(() => makeQuickPick()),
     showErrorMessage: jest.fn(),
     setStatusBarMessage: jest.fn(),
     showSaveDialog: jest.fn(),

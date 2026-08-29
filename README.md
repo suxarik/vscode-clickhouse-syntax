@@ -1,10 +1,49 @@
 # ClickHouse SQL Syntax for VS Code
 
-A VS Code extension providing rich syntax highlighting, intelligent completions, hover documentation, and code formatting for **ClickHouse SQL** dialect.
+Write ClickHouse SQL with an editor that understands the dialect, connect to a server, run
+the statement under your cursor, and read the result — without leaving the file.
 
 ---
 
 ## Features
+
+### 🔌 Connect and run
+
+Add a connection with **ClickHouse: Add Connection**, put the cursor in a statement, and
+press `Ctrl+Enter` (`Cmd+Enter`).
+
+- **Results stream in** as they arrive, in a virtualised grid. A million rows arrive in
+  about 1.6 seconds and render as fewer than eighty rows of DOM. Sort, filter, expand
+  nested `Array`/`Map`/`Tuple`/`JSON` cells, copy as TSV/CSV/JSON/Markdown, export to file.
+- **64-bit integers stay exact** — they cross the wire as strings, because `JSON.parse`
+  rounds anything past 2^53.
+- **Cancel** sends `KILL QUERY`, so the work stops on the server.
+- **Browse the schema** in the explorer: databases, tables, columns with types, engines,
+  row counts and part counts, and dictionaries. It says so when it is showing a cache
+  whose refresh failed.
+- **Query history** with timings, re-run, and pinning for the queries worth keeping.
+- **Profile the last query** against `system.query_log` — rows and bytes read, peak
+  memory, threads.
+
+**Read-only by default, and it means it.** A profile without `allowWrite` *refuses* a
+write rather than prompting; a dialog you can click through is not a safety boundary.
+Writes are recognised from the parse tree, `readonly=2` is sent so the server refuses
+independently, and destructive statements confirm by name. Passwords go to the OS
+credential store, never to `settings.json`.
+
+See **[docs/connections.md](docs/connections.md)** for profiles, token auth, TLS, the
+safety flags, and how to read a failed diagnosis.
+
+### 🧭 Understand a query before you run it
+
+- **EXPLAIN as a plan, not as text** — `PLAN indexes = 1`, `PIPELINE`, `ESTIMATE`,
+  `SYNTAX`, `AST`, rendered as a tree that leads with what matters: which tables are read
+  and how much each index actually removed (`parts 1/3 (33.3%)`). It says plainly when
+  nothing was pruned.
+- **Validate against the real server** on demand, via `EXPLAIN QUERY TREE` — it resolves
+  every name without reading a row.
+- **17 lint rules**, each individually configurable, for what a plan will not tell you.
+  See [docs/rules.md](docs/rules.md) or run **ClickHouse: Show Lint Rules**.
 
 ### 🎨 Syntax Highlighting
 Full syntax highlighting for ClickHouse-specific constructs:

@@ -40,6 +40,10 @@ profile what it actually cost - without leaving the file you are writing.
 - **A virtualised result grid**: fifty thousand rows render as fewer than a hundred DOM
   nodes. Sort by column, filter, expand nested `Array`/`Map`/`Tuple`/`JSON` cells, copy as
   TSV/CSV/JSON/Markdown, export to a file, with read rows, bytes and elapsed in the footer.
+  A million rows arrive in about 1.6 seconds and still render as fewer than eighty rows of
+  DOM. The footer omits a read count rather than showing a wrong one: `X-ClickHouse-Summary`
+  is written when headers flush, so on a long streamed result it is a snapshot, not a
+  total - *Profile Last Query* reads the authoritative figures from `system.query_log`.
 - **64-bit integers and decimals stay exact.** They cross the wire as strings, because
   `JSON.parse` rounds anything past 2^53 - a `UInt64` event id was otherwise displayed
   wrong. Sorting uses `BigInt` so the order is right too.
@@ -60,12 +64,24 @@ profile what it actually cost - without leaving the file you are writing.
   (`parts 1/3 (33.3%)  granules 8/24 (33.3%)`). It says plainly when nothing was pruned.
 - **Query history** per workspace - what ran, against which profile, how long it took, and
   what failed. Pick one to run it again. It records statements, never rows.
+- **Pin a query you want to keep.** Pinned entries sort to the top, are exempt from the
+  200-entry cap, and survive clearing - clearing offers to keep them rather than quietly
+  discarding what you marked. Pin from the button in the history picker, which stays open
+  so pinning three queries does not mean opening it three times.
 - **Profile the last query** against `system.query_log`: duration, rows and bytes read,
   peak memory, thread count.
 - **Validate against the server** on demand. Uses `EXPLAIN QUERY TREE`, which resolves
   every name without reading a row - `EXPLAIN SYNTAX` was tried first and rejected,
   because it accepts a column that does not exist. Falls back to `EXPLAIN PLAN` on servers
   predating the analyzer.
+
+#### Getting started
+
+- **A first-run walkthrough**: connect, explore the schema, run a query, read the plan.
+  Each step completes on the context key or command that proves it was done, not on a
+  click-through.
+- **[docs/connections.md](docs/connections.md)** covers profiles, token auth, TLS, what
+  each safety flag permits, and how to read a failed diagnosis.
 
 ### Changed
 

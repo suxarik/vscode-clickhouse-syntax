@@ -9,16 +9,86 @@ import { QueryRunner } from './queryRunner';
 import { AnalysisCache } from '../analysis';
 import { LiveValidator } from './liveDiagnostics';
 
-function summarise(entry: HistoryEntry): vscode.QuickPickItem {
+const PIN_BUTTON: vscode.QuickInputButton = {
+    iconPath: new vscode.ThemeIcon('pin'),
+    tooltip: 'Pin this query',
+};
+const UNPIN_BUTTON: vscode.QuickInputButton = {
+    iconPath: new vscode.ThemeIcon('pinned'),
+    tooltip: 'Unpin this query',
+};
+
+/** A history item carries its entry, so the picker never indexes back by position. */
+interface HistoryItem extends vscode.QuickPickItem {
+    entry?: HistoryEntry;
+}
+
+function summarise(entry: HistoryEntry): HistoryItem {
     const when = new Date(entry.at).toLocaleString();
     const outcome = entry.error
         ? `failed: ${entry.error.slice(0, 60)}`
         : `${formatCount(entry.rows)} rows in ${formatDuration(entry.elapsedMs)}`;
     return {
-        label: entry.sql.replace(/\s+/g, ' ').slice(0, 100),
-        description: entry.profile,
+        label: entry.label ?? entry.sql.replace(/\s+/g, ' ').slice(0, 100),
+        description: entry.label ? `${entry.profile}  -  ${entry.sql.replace(/\s+/g, ' ').slice(0, 60)}` : entry.profile,
         detail: `${when}  -  ${outcome}`,
+        buttons: [entry.pinned ? UNPIN_BUTTON : PIN_BUTTON],
+        entry,
     };
+}
+
+/** Pinned first under their own heading, so a kept query is easy to find again. */
+function buildItems(entries: HistoryEntry[]): HistoryItem[] {
+    const pinned = entries.filter(e => e.pinned);
+    const recent = entries.filter(e => !e.pinned);
+    const items: HistoryItem[] = [];
+    if (pinned.length > 0) {
+        items.push({ label: 'Pinned', kind: vscode.QuickPickItemKind.Separator });
+        items.push(...pinned.map(summarise));
+        if (recent.length > 0) items.push({ label: 'Recent', kind: vscode.QuickPickItemKind.Separator });
+    }
+    items.push(...recent.map(summarise));
+    return items;
+}
+
+/**
+ * Show the history picker, returning the entry to run.
+ *
+ * This is a full quick pick rather than `showQuickPick` because pinning happens
+ * through the per-item button, and the list has to stay open and re-render
+ * afterwards - pinning three queries should not mean opening the picker three
+ * times.
+ */
+function pickFromHistory(history: QueryHistory): Promise<HistoryEntry | undefined> {
+    return new Promise(resolve => {
+        const picker = vscode.window.createQuickPick<HistoryItem>();
+        picker.placeholder = 'Run a query from history';
+        picker.matchOnDetail = true;
+        picker.matchOnDescription = true;
+        picker.items = buildItems(history.entries());
+
+        let result: HistoryEntry | undefined;
+
+        picker.onDidTriggerItemButton(async event => {
+            const entry = event.item.entry;
+            if (!entry) return;
+            await history.setPinned(entry.queryId, !entry.pinned);
+            // Keep what was typed, so toggling a pin does not lose the filter.
+            const value = picker.value;
+            picker.items = buildItems(history.entries());
+            picker.value = value;
+        });
+
+        picker.onDidAccept(() => {
+            result = picker.selectedItems[0]?.entry;
+            picker.hide();
+        });
+        picker.onDidHide(() => {
+            picker.dispose();
+            resolve(result);
+        });
+        picker.show();
+    });
 }
 
 export function registerHistoryCommands(
@@ -30,25 +100,36 @@ export function registerHistoryCommands(
 ): vscode.Disposable[] {
     return [
         vscode.commands.registerCommand('clickhouse.showQueryHistory', async () => {
-            const entries = history.entries();
-            if (entries.length === 0) {
+            if (history.entries().length === 0) {
                 vscode.window.showInformationMessage('ClickHouse: no queries have been run in this workspace yet.');
                 return;
             }
 
-            const items = entries.map(summarise);
-            const picked = await vscode.window.showQuickPick(items, {
-                placeHolder: 'Run a query from history',
-                matchOnDetail: true,
-            });
-            if (!picked) return;
-
-            const entry = entries[items.indexOf(picked)];
-            if (!entry) return;
-            await runner.run({ sql: entry.sql, statements: analysisCache.analyze(entry.sql).program.statements });
+            const chosen = await pickFromHistory(history);
+            if (!chosen) return;
+            await runner.run({ sql: chosen.sql, statements: analysisCache.analyze(chosen.sql).program.statements });
         }),
 
         vscode.commands.registerCommand('clickhouse.clearQueryHistory', async () => {
+            const pinnedCount = history.pinned().length;
+            if (pinnedCount > 0) {
+                // Clearing must not quietly discard what was deliberately kept.
+                const keep = `Keep ${pinnedCount} pinned`;
+                const answer = await vscode.window.showWarningMessage(
+                    `ClickHouse: clear query history? ${pinnedCount} pinned ${pinnedCount === 1 ? 'query' : 'queries'} can be kept.`,
+                    { modal: true },
+                    keep,
+                    'Clear everything'
+                );
+                if (!answer) return;
+                await history.clear({ includePinned: answer !== keep });
+                vscode.window.showInformationMessage(
+                    answer === keep
+                        ? `ClickHouse: history cleared, ${pinnedCount} pinned kept.`
+                        : 'ClickHouse: query history cleared, including pins.'
+                );
+                return;
+            }
             await history.clear();
             vscode.window.showInformationMessage('ClickHouse: query history cleared.');
         }),

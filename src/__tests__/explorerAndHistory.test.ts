@@ -181,6 +181,67 @@ describe('query history', () => {
     });
 });
 
+describe('pinned history entries', () => {
+    it('survives the cap', async () => {
+        const history = new QueryHistory(makeContext());
+        await history.record({ sql: 'SELECT keep', profile: 'p', queryId: 'keep', at: 0 });
+        await history.setPinned('keep', true);
+        for (let i = 0; i < 250; i++) {
+            await history.record({ sql: `SELECT ${i}`, profile: 'p', queryId: String(i), at: i + 1 });
+        }
+        expect(history.entries().some(entry => entry.sql === 'SELECT keep')).toBe(true);
+        // The cap still applies to everything else.
+        expect(history.entries().filter(entry => !entry.pinned).length).toBeLessThanOrEqual(200);
+    });
+
+    it('survives clearing, unless clearing is explicit about it', async () => {
+        const history = new QueryHistory(makeContext());
+        await history.record({ sql: 'SELECT keep', profile: 'p', queryId: 'keep', at: 1 });
+        await history.record({ sql: 'SELECT drop', profile: 'p', queryId: 'drop', at: 2 });
+        await history.setPinned('keep', true);
+
+        expect(await history.clear()).toBe(1);
+        expect(history.entries().map(entry => entry.sql)).toEqual(['SELECT keep']);
+
+        expect(await history.clear({ includePinned: true })).toBe(0);
+        expect(history.entries()).toEqual([]);
+    });
+
+    it('sorts pinned first, whatever their age', async () => {
+        const history = new QueryHistory(makeContext());
+        await history.record({ sql: 'SELECT old', profile: 'p', queryId: 'old', at: 1 });
+        await history.setPinned('old', true);
+        await history.record({ sql: 'SELECT new', profile: 'p', queryId: 'new', at: 2 });
+        expect(history.entries().map(entry => entry.sql)).toEqual(['SELECT old', 'SELECT new']);
+    });
+
+    it('still profiles the query that actually ran last', async () => {
+        // An old pin sorts to the top of the list, but 'last query' means last run.
+        const history = new QueryHistory(makeContext());
+        await history.record({ sql: 'SELECT old', profile: 'p', queryId: 'old', at: 1 });
+        await history.setPinned('old', true);
+        await history.record({ sql: 'SELECT new', profile: 'p', queryId: 'new', at: 2 });
+        expect(history.latest()?.queryId).toBe('new');
+    });
+
+    it('unpins, and forgets the label with it', async () => {
+        const history = new QueryHistory(makeContext());
+        await history.record({ sql: 'SELECT 1', profile: 'p', queryId: 'a', at: 1 });
+        await history.setPinned('a', true, 'daily rollup');
+        expect(history.entries()[0].label).toBe('daily rollup');
+
+        await history.setPinned('a', false);
+        expect(history.entries()[0].pinned).toBeUndefined();
+        expect(history.entries()[0].label).toBeUndefined();
+    });
+
+    it('reports an unknown query id rather than inventing an entry', async () => {
+        const history = new QueryHistory(makeContext());
+        expect(await history.setPinned('nope', true)).toBeUndefined();
+        expect(history.entries()).toEqual([]);
+    });
+});
+
 describe('fetchProfile', () => {
     function client(rows: unknown[][]): QueryCapable & { queries: string[] } {
         const queries: string[] = [];

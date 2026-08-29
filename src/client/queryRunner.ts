@@ -185,16 +185,27 @@ export class QueryRunner implements vscode.Disposable {
                 onTrace: note => this.panel.trace(note),
             });
 
+            // The summary header is written when headers flush, so for a
+            // streamed result it is a snapshot rather than a total - a million
+            // rows can report sixty thousand read. Showing a number smaller
+            // than what arrived is worse than showing none; Profile Last Query
+            // reads the authoritative figures from system.query_log.
+            const summary = result.summary;
+            // Only a read count we can see is too small proves a snapshot; an
+            // absent one contradicts nothing.
+            const summaryIsComplete =
+                summary?.readRows === undefined || summary.readRows >= result.rows.length;
+
             this.panel.end(
                 {
                     elapsedMs: result.elapsedMs,
-                    readRows: result.summary?.readRows,
-                    readBytes: result.summary?.readBytes,
+                    readRows: summaryIsComplete ? summary?.readRows : undefined,
+                    readBytes: summaryIsComplete ? summary?.readBytes : undefined,
                     // The server reports result_rows as 0 for a streamed
                     // result, so what actually arrived is the honest number.
-                    resultRows: result.summary?.resultRows || result.rows.length,
-                    writtenRows: result.summary?.writtenRows,
-                    memoryBytes: result.summary?.memoryBytes,
+                    resultRows: summary?.resultRows || result.rows.length,
+                    writtenRows: summary?.writtenRows,
+                    memoryBytes: summaryIsComplete ? summary?.memoryBytes : undefined,
                 },
                 result.truncated
             );

@@ -401,3 +401,62 @@ describe('reported statistics', () => {
         expect((await statisticsFor(null))?.resultRows).toBe(1);
     });
 });
+
+describe('a summary that is only a snapshot', () => {
+    /** Statistics reported for a result of `rowCount` rows. */
+    async function statisticsForRows(rowCount: number, readRows: string) {
+        const lines = [
+            '["n"]',
+            '["UInt64"]',
+            ...Array.from({ length: rowCount }, (_, i) => `["${i}"]`),
+            '',
+        ].join('\n');
+
+        (globalThis as unknown as { fetch: unknown }).fetch = jest.fn(async () => {
+            const encoder = new TextEncoder();
+            let sent = false;
+            return {
+                ok: true,
+                status: 200,
+                headers: {
+                    get: (name: string) =>
+                        name === 'X-ClickHouse-Summary' ? `{"read_rows":"${readRows}","read_bytes":"99"}` : null,
+                },
+                text: async () => lines,
+                body: {
+                    getReader: () => ({
+                        read: async () =>
+                            sent ? { done: true, value: undefined } : ((sent = true), { done: false, value: encoder.encode(lines) }),
+                        cancel: async () => undefined,
+                        releaseLock: () => undefined,
+                    }),
+                },
+            };
+        });
+
+        setConfig({ connections: [{ name: 'prof', host: 'localhost' }] });
+        const panel = new ResultsPanel(vscode.Uri.file('/ext'));
+        let statistics: Record<string, unknown> | undefined;
+        (panel as unknown as { send(m: { type: string; statistics?: Record<string, unknown> }): void }).send = m => {
+            if (m.type === 'end') statistics = m.statistics;
+        };
+        await new QueryRunner(new ConnectionManager(makeContext()), panel, analysisCache).run(target('SELECT 1'));
+        return statistics;
+    }
+
+    it('drops a read count smaller than the rows that arrived', async () => {
+        // A million-row result reporting sixty thousand read is a snapshot from
+        // when headers flushed, not a total.
+        const statistics = await statisticsForRows(50, '10');
+        expect(statistics?.readRows).toBeUndefined();
+        expect(statistics?.readBytes).toBeUndefined();
+        // What actually arrived is still reported.
+        expect(statistics?.resultRows).toBe(50);
+    });
+
+    it('keeps a read count that makes sense', async () => {
+        // An aggregate reads far more than it returns, which is not a snapshot.
+        const statistics = await statisticsForRows(1, '500000');
+        expect(statistics?.readRows).toBe(500_000);
+    });
+});
