@@ -24,6 +24,19 @@ jobs:
     permissions:
       contents: write
 
+    services:
+      clickhouse:
+        image: clickhouse/clickhouse-server:latest
+        ports:
+          - 18123:8123
+        env:
+          CLICKHOUSE_SKIP_USER_SETUP: 1
+        options: >-
+          --health-cmd "wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -74,6 +87,11 @@ jobs:
 
       - name: Test
         run: npm test
+
+      - name: Integration tests
+        run: xvfb-run -a npm run test:integration
+        env:
+          CLICKHOUSE_TEST_URL: http://localhost:18123
 
       - name: Bundle
         run: npm run package:bundle

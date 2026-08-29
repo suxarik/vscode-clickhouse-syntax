@@ -290,7 +290,7 @@ command palette does the same thing explicitly.
 | `clickhouse.schema.includeSystemDatabase` | `false` | Introspect `system` too (the bundled catalog already covers it) |
 | `clickhouse.query.maxResultRows` | `100000` | Hard cap on rows pulled into the grid (`0` removes it) |
 | `clickhouse.query.maxExecutionTime` | `60` | Seconds before ClickHouse aborts a query (`0` removes it) |
-| `clickhouse.query.autoLimit` | `1000` | Rows read for a preview query |
+| `clickhouse.query.previewRows` | `100` | Rows fetched by **Preview Rows** in the explorer (`0` reads the whole table) |
 | `clickhouse.query.showRunCodeLens` | `true` | Show a Run action above each statement |
 
 ### Code Actions

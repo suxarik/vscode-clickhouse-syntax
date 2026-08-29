@@ -12,6 +12,8 @@ const CONNECTION: ResolvedConnection = {
     database: 'analytics',
     allowWrite: false,
     isProtected: false,
+    auth: 'password',
+    allowInvalidCertificate: false,
     settings: {},
 };
 
@@ -394,5 +396,38 @@ describe('truncated responses', () => {
         const result = await new ClickHouseClient(CONNECTION).query('SELECT id FROM t WHERE 0');
         expect(result.rows).toEqual([]);
         expect(result.columns).toHaveLength(1);
+    });
+});
+
+describe('authentication', () => {
+    it('sends the ClickHouse user and key headers by default', async () => {
+        stubFetch(NAMES_TYPES_ROWS);
+        await new ClickHouseClient(CONNECTION).query('SELECT 1');
+        const headers = calls[0].init.headers as Record<string, string>;
+        expect(headers['X-ClickHouse-User']).toBe('reader');
+        expect(headers['X-ClickHouse-Key']).toBe('secret');
+        expect(headers).not.toHaveProperty('Authorization');
+    });
+
+    it('sends a bearer token when the profile uses one', async () => {
+        stubFetch(NAMES_TYPES_ROWS);
+        await new ClickHouseClient({ ...CONNECTION, auth: 'token', password: 'tok-123' }).query('SELECT 1');
+        const headers = calls[0].init.headers as Record<string, string>;
+        expect(headers['Authorization']).toBe('Bearer tok-123');
+        // A token replaces the user headers rather than accompanying them.
+        expect(headers).not.toHaveProperty('X-ClickHouse-User');
+        expect(headers).not.toHaveProperty('X-ClickHouse-Key');
+    });
+
+    it('keeps the token out of the URL', async () => {
+        stubFetch(NAMES_TYPES_ROWS);
+        await new ClickHouseClient({ ...CONNECTION, auth: 'token', password: 'tok-123' }).query('SELECT 1');
+        expect(calls[0].url).not.toContain('tok-123');
+    });
+
+    it('sends no credential header when there is no secret', async () => {
+        stubFetch(NAMES_TYPES_ROWS);
+        await new ClickHouseClient({ ...CONNECTION, auth: 'token', password: undefined }).query('SELECT 1');
+        expect(calls[0].init.headers as Record<string, string>).not.toHaveProperty('Authorization');
     });
 });

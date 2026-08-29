@@ -146,6 +146,8 @@ describe('the client over a real socket', () => {
             database: 'analytics',
             allowWrite: false,
             isProtected: false,
+            auth: 'password',
+            allowInvalidCertificate: false,
             settings: {},
         };
     }
@@ -399,5 +401,37 @@ describe('address family selection', () => {
             body: '',
         });
         expect(response.status).toBe(200);
+    });
+});
+
+describe('certificate handling', () => {
+    /** Capture the options handed to the request. */
+    function recordingSender() {
+        const seen: Array<Record<string, unknown>> = [];
+        const recording = {
+            ClientRequest: function (_url: string, options: Record<string, unknown>) {
+                seen.push(options);
+                return { on: () => undefined, write: () => undefined, end: () => undefined, destroy: () => undefined };
+            },
+        } as never;
+        return { seen, sender: createNodeSender({ http: recording, https: recording }) };
+    }
+
+    it('verifies certificates by default', () => {
+        const { seen, sender: under } = recordingSender();
+        void under.send({ url: 'https://example:8443/', method: 'POST', headers: {}, body: '' });
+        expect(seen[0].rejectUnauthorized).toBeUndefined();
+    });
+
+    it('only skips verification when the profile opts in', () => {
+        const { seen, sender: under } = recordingSender();
+        void under.send({
+            url: 'https://example:8443/',
+            method: 'POST',
+            headers: {},
+            body: '',
+            allowInvalidCertificate: true,
+        });
+        expect(seen[0].rejectUnauthorized).toBe(false);
     });
 });

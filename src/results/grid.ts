@@ -132,6 +132,37 @@ export function filteredIndices(
     );
 }
 
+/** Characters a column is given, before padding. */
+export const MIN_COLUMN_CHARS = 6;
+export const MAX_COLUMN_CHARS = 60;
+
+/**
+ * A width per column, in characters.
+ *
+ * Header and body cells must be laid out to the same width or they drift apart:
+ * a wide value widens its body cell but not its header, so labels stop matching
+ * the values beneath them and the header runs out of scroll before the body
+ * does. Only a sample of rows is measured, so a long result does not cost a
+ * full scan, and the widths stay put while more rows stream in.
+ */
+export function columnWidths(
+    columns: ColumnMeta[],
+    rows: unknown[][],
+    sampleSize = 200
+): number[] {
+    const sampled = Math.min(rows.length, sampleSize);
+
+    return columns.map((column, index) => {
+        // Room for the sort arrow as well as the name.
+        let widest = column.name.length + 2;
+        for (let row = 0; row < sampled; row++) {
+            const text = formatValue(rows[row][index], column.type, { maxLength: MAX_COLUMN_CHARS + 1 });
+            if (text.length > widest) widest = text.length;
+        }
+        return Math.max(MIN_COLUMN_CHARS, Math.min(MAX_COLUMN_CHARS, widest));
+    });
+}
+
 /** Cycle a column header: unsorted → ascending → descending → unsorted. */
 export function nextSort(current: SortState | undefined, column: number): SortState | undefined {
     if (!current || current.column !== column) return { column, direction: 'asc' };

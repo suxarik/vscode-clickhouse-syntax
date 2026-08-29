@@ -18,6 +18,7 @@ export interface ResultStatistics {
     readBytes?: number;
     resultRows?: number;
     writtenRows?: number;
+    memoryBytes?: number;
 }
 
 export interface ResultHeader {

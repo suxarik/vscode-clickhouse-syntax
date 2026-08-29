@@ -3,6 +3,7 @@
  */
 import * as vscode from 'vscode';
 import { ExplorerProvider, qualifiedName } from '../client/explorerView';
+import { previewStatement } from '../client/explorerCommands';
 import { ConnectionManager } from '../client/connectionManager';
 import { cacheFileName, isStale } from '../client/schemaSync';
 import { fetchProfile, QueryHistory } from '../client/history';
@@ -258,5 +259,37 @@ describe('server validation ranges', () => {
         const reported = parseErrorPosition('Syntax error: failed at position 25 (x)');
         expect(reported).toBe(24);
         expect(reported! - 'EXPLAIN QUERY TREE '.length).toBe(5);
+    });
+});
+
+describe('previewStatement', () => {
+    it('limits to the configured row count', () => {
+        (vscode as unknown as { __setConfig(v: Record<string, unknown>): void }).__setConfig({
+            'query.previewRows': 100,
+        });
+        expect(previewStatement('analytics', 'events')).toBe('SELECT * FROM analytics.events LIMIT 100');
+    });
+
+    it('defaults to a preview-sized count, not a thousand rows', () => {
+        // The menu item does not name a number, but it must still be a preview.
+        expect(previewStatement('analytics', 'events')).toContain('LIMIT 100');
+    });
+
+    it('honours a different configured count', () => {
+        (vscode as unknown as { __setConfig(v: Record<string, unknown>): void }).__setConfig({
+            'query.previewRows': 25,
+        });
+        expect(previewStatement('analytics', 'events')).toContain('LIMIT 25');
+    });
+
+    it('reads the whole table when the count is zero', () => {
+        (vscode as unknown as { __setConfig(v: Record<string, unknown>): void }).__setConfig({
+            'query.previewRows': 0,
+        });
+        expect(previewStatement('analytics', 'events')).toBe('SELECT * FROM analytics.events');
+    });
+
+    it('quotes names that need it', () => {
+        expect(previewStatement('my db', 'my-table', 10)).toBe('SELECT * FROM `my db`.`my-table` LIMIT 10');
     });
 });

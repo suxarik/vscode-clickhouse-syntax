@@ -170,11 +170,41 @@ async function promptForProfile(
     });
     if (user === undefined) return undefined;
 
+    // ClickHouse Cloud hands out an https endpoint and a token; a self-hosted
+    // server usually wants a user and password.
+    const looksLikeCloud = /clickhouse\.cloud$/i.test(parsed.host);
+    const authChoices = [
+        {
+            label: '$(key) Password',
+            detail: 'Sent as the ClickHouse user and key headers.',
+            value: 'password' as const,
+        },
+        {
+            label: '$(shield) Token',
+            detail: 'Sent as a bearer token. ClickHouse Cloud and JWT setups use this.',
+            value: 'token' as const,
+        },
+    ];
+    const auth =
+        existing?.auth ??
+        (
+            await vscode.window.showQuickPick(looksLikeCloud ? authChoices.reverse() : authChoices, {
+                title: 'How does this server authenticate?',
+                ignoreFocusOut: true,
+            })
+        )?.value;
+    if (!auth) return undefined;
+
     const password = await vscode.window.showInputBox({
         title: `${verb} ClickHouse connection (4/5)`,
-        prompt: existing
-            ? 'Password (leave empty to keep the stored one)'
-            : 'Password (leave empty if there is none)',
+        prompt:
+            auth === 'token'
+                ? existing
+                    ? 'Token (leave empty to keep the stored one)'
+                    : 'Access token'
+                : existing
+                  ? 'Password (leave empty to keep the stored one)'
+                  : 'Password (leave empty if there is none)',
         password: true,
         ignoreFocusOut: true,
     });
@@ -205,9 +235,11 @@ async function promptForProfile(
     };
     if (user.trim() && user.trim() !== 'default') profile.user = user.trim();
     if (database.trim() && database.trim() !== 'default') profile.database = database.trim();
+    if (auth === 'token') profile.auth = 'token';
     if (access.value !== 'readonly') profile.allowWrite = true;
     if (access.value === 'protected') profile.protected = true;
     if (existing?.settings) profile.settings = existing.settings;
+    if (existing?.allowInvalidCertificate) profile.allowInvalidCertificate = true;
 
     return password ? { profile, password } : { profile };
 }
@@ -248,14 +280,19 @@ export function registerConnectionSetupCommands(manager: ConnectionManager): vsc
             }
         }),
 
-        vscode.commands.registerCommand('clickhouse.editConnection', async (preselected?: string) => {
+        vscode.commands.registerCommand('clickhouse.editConnection', async (preselected?: unknown) => {
             const profiles = manager.profiles();
             if (profiles.length === 0) {
                 await vscode.commands.executeCommand('clickhouse.addConnection');
                 return;
             }
 
-            let name = preselected;
+            // A command invoked from a menu is handed that menu's context, so
+            // anything that is not a known profile name means "ask me".
+            let name =
+                typeof preselected === 'string' && profiles.some(profile => profile.name === preselected)
+                    ? preselected
+                    : undefined;
             if (!name) {
                 const picked = await vscode.window.showQuickPick(
                     profiles.map(profile => ({
@@ -270,7 +307,10 @@ export function registerConnectionSetupCommands(manager: ConnectionManager): vsc
             if (!name) return;
 
             const existing = profiles.find(profile => profile.name === name);
-            if (!existing) return;
+            if (!existing) {
+                vscode.window.showWarningMessage(`ClickHouse: there is no connection called '${name}'.`);
+                return;
+            }
 
             const answered = await promptForProfile(manager, existing);
             if (!answered) return;

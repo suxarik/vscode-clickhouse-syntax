@@ -139,6 +139,8 @@ export function parseSummary(header: string | null): QuerySummary | undefined {
             totalRowsToRead: num('total_rows_to_read'),
             resultRows: num('result_rows'),
             resultBytes: num('result_bytes'),
+            elapsedNs: num('elapsed_ns'),
+            memoryBytes: num('memory_usage'),
         };
         return Object.values(summary).some(value => value !== undefined && !Number.isNaN(value))
             ? summary
@@ -197,11 +199,17 @@ export class ClickHouseClient {
     }
 
     private headers(): Record<string, string> {
-        const headers: Record<string, string> = {
-            'Content-Type': 'text/plain; charset=utf-8',
-            'X-ClickHouse-User': this.connection.user,
-        };
+        const headers: Record<string, string> = { 'Content-Type': 'text/plain; charset=utf-8' };
+
         // Credentials go in headers, never the URL, so they stay out of logs.
+        if (this.connection.auth === 'token') {
+            // ClickHouse Cloud and JWT-fronted deployments expect a bearer
+            // token and no user header.
+            if (this.connection.password) headers['Authorization'] = `Bearer ${this.connection.password}`;
+            return headers;
+        }
+
+        headers['X-ClickHouse-User'] = this.connection.user;
         if (this.connection.password) headers['X-ClickHouse-Key'] = this.connection.password;
         return headers;
     }
@@ -242,6 +250,7 @@ export class ClickHouseClient {
                     body: `${sql}\nFORMAT ${STREAM_FORMAT}`,
                     signal: controller.signal,
                     onTrace: options.onTrace,
+                    allowInvalidCertificate: this.connection.allowInvalidCertificate,
                 });
             } catch (error) {
                 if (deadlineFired) {
@@ -298,6 +307,7 @@ export class ClickHouseClient {
                 body: sql,
                 signal: options.signal,
                 timeoutMs: this.deadline(options),
+                allowInvalidCertificate: this.connection.allowInvalidCertificate,
             });
         } catch (error) {
             throw describeTransportFailure(error, url);

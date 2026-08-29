@@ -135,8 +135,8 @@ describe('refresh', () => {
     it('collapses concurrent refreshes into one', async () => {
         const { sync } = makeSync();
         await Promise.all([sync.refresh({ silent: true }), sync.refresh({ silent: true })]);
-        // version + tables + columns, once.
-        expect(queryCount).toBe(3);
+        // version, tables, columns and dictionaries — one round, not two.
+        expect(queryCount).toBe(4);
         sync.dispose();
     });
 

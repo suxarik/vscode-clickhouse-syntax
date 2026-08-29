@@ -156,3 +156,52 @@ describe('tableStatistics', () => {
         expect(queries[0]).toContain('WHERE active');
     });
 });
+
+describe('dictionaries', () => {
+    const DICTIONARIES = {
+        match: /system\.dictionaries/,
+        columns: ['database', 'name', 'key_names', 'attribute_names', 'attribute_types', 'comment'],
+        rows: [['analytics', 'users_dict', ['id'], ['name', 'country'], ['String', 'String'], 'lookup']] as unknown[][],
+    };
+
+    it('includes dictionaries, which dictGet can query', async () => {
+        const { client } = fakeClient([VERSION, TABLES, COLUMNS, DICTIONARIES]);
+        const schema = await introspect(client, 'prod');
+        const analytics = schema.databases.find(database => database.name === 'analytics')!;
+        const dictionary = analytics.tables.find(table => table.name === 'users_dict');
+
+        expect(dictionary).toBeDefined();
+        expect(dictionary!.engine).toBe('Dictionary');
+        expect(dictionary!.columns.map(column => column.name)).toEqual(['id', 'name', 'country']);
+        expect(dictionary!.description).toBe('lookup');
+    });
+
+    it('records attribute types', async () => {
+        const { client } = fakeClient([VERSION, TABLES, COLUMNS, DICTIONARIES]);
+        const schema = await introspect(client, 'prod');
+        const dictionary = schema.databases
+            .find(database => database.name === 'analytics')!
+            .tables.find(table => table.name === 'users_dict')!;
+        expect(dictionary.columns.find(column => column.name === 'name')?.type).toBe('String');
+    });
+
+    it('carries on when the user cannot read system.dictionaries', async () => {
+        // Rights on that table are not guaranteed; the rest of the schema still
+        // has to load.
+        const client = {
+            async query(sql: string) {
+                if (/system\.dictionaries/.test(sql)) throw new Error('not authorised');
+                const response = [VERSION, TABLES, COLUMNS].find(entry => entry.match.test(sql));
+                return {
+                    queryId: 'q',
+                    columns: (response?.columns ?? []).map(name => ({ name, type: 'String' })),
+                    rows: response?.rows ?? [],
+                    truncated: false,
+                    elapsedMs: 1,
+                };
+            },
+        };
+        const schema = await introspect(client, 'prod');
+        expect(countTables(schema)).toBe(3);
+    });
+});

@@ -73,6 +73,18 @@ export async function introspect(
         { ...queryOptions, maxRows: maxTables }
     );
 
+    // Dictionaries do not appear in system.tables unless they are attached, but
+    // they are queryable through dictGet and worth completing.
+    const dictionaryResult = await client
+        .query(
+            `SELECT database, name, key_names, attribute_names, attribute_types, comment
+             FROM system.dictionaries
+             WHERE database NOT IN (${excluded})
+             ORDER BY database, name`,
+            { ...queryOptions, maxRows: maxTables }
+        )
+        .catch(() => undefined);
+
     const columnResult = await client.query(
         `SELECT database, table, name, type, default_expression, comment, compression_codec
          FROM system.columns
@@ -123,6 +135,40 @@ export async function introspect(
         else databases.set(databaseName, { name: databaseName, tables: [table] });
     }
 
+    if (dictionaryResult) {
+        const field = indexer(dictionaryResult);
+        for (const row of dictionaryResult.rows) {
+            const databaseName = field(row, 'database');
+            const name = field(row, 'name');
+            if (!databaseName || !name) continue;
+
+            const database = databases.get(databaseName) ?? { name: databaseName, tables: [] };
+            if (database.tables.some(table => table.name === name)) continue;
+
+            // key_names and attribute_names arrive as arrays.
+            const keys = parseNameArray(row, dictionaryResult.columns, 'key_names');
+            const attributes = parseNameArray(row, dictionaryResult.columns, 'attribute_names');
+            const types = parseNameArray(row, dictionaryResult.columns, 'attribute_types');
+            const columns: SchemaColumn[] = [
+                ...keys.map(key => ({ name: key, type: 'key', description: 'dictionary key' })),
+                ...attributes.map((attribute, index) => ({
+                    name: attribute,
+                    type: types[index] ?? 'unknown',
+                })),
+            ];
+            if (columns.length === 0) continue;
+
+            const comment = field(row, 'comment');
+            database.tables.push({
+                name,
+                engine: 'Dictionary',
+                columns,
+                ...(comment ? { description: comment } : {}),
+            });
+            databases.set(databaseName, database);
+        }
+    }
+
     return {
         version: '1.0',
         serverVersion,
@@ -170,6 +216,19 @@ export async function tableStatistics(
         uncompressedBytes: Number(field(row, 'uncompressed')),
         parts: Number(field(row, 'parts')),
     }));
+}
+
+/** An array-valued column, which arrives already parsed from JSON. */
+function parseNameArray(
+    row: unknown[],
+    columns: Array<{ name: string }>,
+    name: string
+): string[] {
+    const position = columns.findIndex(column => column.name === name);
+    if (position < 0) return [];
+    const value = row[position];
+    if (Array.isArray(value)) return value.map(entry => String(entry));
+    return [];
 }
 
 export function countTables(schema: ClickHouseSchema): number {

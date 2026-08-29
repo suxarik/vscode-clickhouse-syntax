@@ -29,3 +29,5 @@ clickhouse-schema.json
 images/icon.png
 *.vsix
 docs/**
+.vscode-test.mjs
+.vscode-test/**

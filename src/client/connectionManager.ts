@@ -88,6 +88,8 @@ export function resolveProfile(
         // Read-only unless the profile opts in. This is the default that matters.
         allowWrite: profile.allowWrite === true,
         isProtected: profile.protected === true,
+        auth: profile.auth === 'token' ? 'token' : 'password',
+        allowInvalidCertificate: profile.allowInvalidCertificate === true,
         settings: profile.settings ?? {},
     };
 }

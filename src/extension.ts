@@ -83,6 +83,7 @@ export function activate(context: vscode.ExtensionContext) {
     const queryRunner = new QueryRunner(connections, resultsPanel, analysisCache, queryHistory);
     context.subscriptions.push(
         resultsPanel,
+        queryRunner,
         registerRunCodeLens(analysisCache),
         ...registerRunCommands(queryRunner, analysisCache)
     );
@@ -287,6 +288,10 @@ export function activate(context: vscode.ExtensionContext) {
             await vscode.window.showTextDocument(document);
             vscode.window.showInformationMessage(`ClickHouse: schema template created at ${uri.fsPath}`);
         }),
+
+        // A test seam: the result panel is a webview, so integration tests need
+        // an observable outcome for a query. Read-only, and not in the palette.
+        vscode.commands.registerCommand('clickhouse.debug.lastHistoryEntry', () => queryHistory.latest()),
 
         vscode.commands.registerCommand('clickhouse.showLintRules', async () => {
             const configured = vscode.workspace

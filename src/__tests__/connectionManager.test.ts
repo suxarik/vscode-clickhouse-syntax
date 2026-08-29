@@ -289,3 +289,16 @@ describe('status bar', () => {
         manager.dispose();
     });
 });
+
+describe('choosing a profile', () => {
+    it('does not interrupt when there is only one', async () => {
+        // Test Connection, Set Password and friends have nothing to ask about.
+        setProfiles([{ name: 'solo', host: 'h' }]);
+        const { context } = makeContext();
+        const manager = new ConnectionManager(context);
+
+        await vscode.commands.executeCommand('clickhouse.testConnection');
+        expect(manager.activeProfileName()).toBe('solo');
+        manager.dispose();
+    });
+});

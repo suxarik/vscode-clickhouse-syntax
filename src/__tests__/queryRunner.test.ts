@@ -314,3 +314,90 @@ describe('what the panel is told', () => {
         expect(messages.filter(m => m.type === 'end')).toHaveLength(1);
     });
 });
+
+describe('progress', () => {
+    it('shows a running indicator and hides it when done', async () => {
+        setConfig({ connections: [{ name: 'prof', host: 'localhost' }] });
+        const connections = new ConnectionManager(makeContext());
+        const runner = new QueryRunner(connections, new ResultsPanel(vscode.Uri.file('/ext')), analysisCache);
+
+        const status = (vscode.window.createStatusBarItem as jest.Mock).mock.results.at(-1)!.value;
+        await runner.run(target('SELECT 1'));
+
+        // Shown while running, and put away afterwards.
+        expect(status.show).toHaveBeenCalled();
+        expect(status.hide).toHaveBeenCalled();
+        expect(status.command).toBe('clickhouse.cancelQuery');
+        runner.dispose();
+    });
+
+    it('hides the indicator when the query fails', async () => {
+        stubFetch('Code: 60. DB::Exception: nope', 404);
+        setConfig({ connections: [{ name: 'prof', host: 'localhost' }] });
+        const connections = new ConnectionManager(makeContext());
+        const runner = new QueryRunner(connections, new ResultsPanel(vscode.Uri.file('/ext')), analysisCache);
+
+        const status = (vscode.window.createStatusBarItem as jest.Mock).mock.results.at(-1)!.value;
+        await runner.run(target('SELECT 1'));
+        expect(status.hide).toHaveBeenCalled();
+        runner.dispose();
+    });
+});
+
+describe('reported statistics', () => {
+    /** The statistics the panel is handed when a query finishes. */
+    async function statisticsFor(summaryHeader: string | null) {
+        requests = [];
+        (globalThis as unknown as { fetch: unknown }).fetch = jest.fn(async (url: string, init: RequestInit) => {
+            requests.push({ url: String(url), body: String(init.body ?? '') });
+            const encoder = new TextEncoder();
+            let sent = false;
+            return {
+                ok: true,
+                status: 200,
+                headers: { get: (name: string) => (name === 'X-ClickHouse-Summary' ? summaryHeader : null) },
+                text: async () => ROWS,
+                body: {
+                    getReader: () => ({
+                        read: async () =>
+                            sent
+                                ? { done: true, value: undefined }
+                                : ((sent = true), { done: false, value: encoder.encode(ROWS) }),
+                        cancel: async () => undefined,
+                        releaseLock: () => undefined,
+                    }),
+                },
+            };
+        });
+
+        setConfig({ connections: [{ name: 'prof', host: 'localhost' }] });
+        const connections = new ConnectionManager(makeContext());
+        const panel = new ResultsPanel(vscode.Uri.file('/ext'));
+        let statistics: Record<string, unknown> | undefined;
+        (panel as unknown as { send(m: { type: string; statistics?: Record<string, unknown> }): void }).send = m => {
+            if (m.type === 'end') statistics = m.statistics;
+        };
+        await new QueryRunner(connections, panel, analysisCache).run(target('SELECT 1'));
+        return statistics;
+    }
+
+    it('falls back to the rows received when the server reports result_rows as zero', async () => {
+        // ClickHouse always says 0 for a streamed result, so trusting it would
+        // leave the footer claiming nothing came back.
+        const statistics = await statisticsFor('{"read_rows":"5","result_rows":"0"}');
+        expect(statistics?.resultRows).toBe(1);
+        expect(statistics?.readRows).toBe(5);
+    });
+
+    it('keeps a real result_rows when the server gives one', async () => {
+        expect((await statisticsFor('{"result_rows":"42"}'))?.resultRows).toBe(42);
+    });
+
+    it('passes peak memory through', async () => {
+        expect((await statisticsFor('{"memory_usage":"1048576"}'))?.memoryBytes).toBe(1_048_576);
+    });
+
+    it('copes with no summary at all', async () => {
+        expect((await statisticsFor(null))?.resultRows).toBe(1);
+    });
+});

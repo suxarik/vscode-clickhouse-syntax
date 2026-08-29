@@ -1,0 +1,4 @@
+{
+  "clickhouse.detect.mode": "off",
+  "clickhouse.schema.cacheTtlMinutes": 0
+}

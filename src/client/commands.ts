@@ -14,10 +14,14 @@ const ADD_NEW = '$(add) Add a connection…';
 async function pickProfile(
     manager: ConnectionManager,
     placeHolder: string,
-    options: { offerAdd?: boolean } = {}
+    options: { offerAdd?: boolean; alwaysAsk?: boolean } = {}
 ): Promise<string | undefined> {
     const profiles = manager.profiles();
     const offerAdd = options.offerAdd !== false;
+
+    // With a single profile there is nothing to choose, so only the command
+    // whose whole purpose is choosing should interrupt.
+    if (profiles.length === 1 && !options.alwaysAsk) return profiles[0].name;
 
     if (profiles.length === 0) {
         if (!offerAdd) {
@@ -44,9 +48,6 @@ async function pickProfile(
         items.push({ label: '', kind: vscode.QuickPickItemKind.Separator }, { label: ADD_NEW });
     }
 
-    // With one profile and nothing to add, there is nothing to ask.
-    if (profiles.length === 1 && !offerAdd) return profiles[0].name;
-
     const picked = await vscode.window.showQuickPick(items, { placeHolder });
     if (!picked) return undefined;
     if (picked.label === ADD_NEW) {
@@ -65,7 +66,9 @@ export function registerConnectionCommands(manager: ConnectionManager): vscode.D
                     `ClickHouse: ${issues.length} connection profile issue(s): ${issues[0].message}`
                 );
             }
-            const name = await pickProfile(manager, 'Which ClickHouse server should queries run against?');
+            const name = await pickProfile(manager, 'Which ClickHouse server should queries run against?', {
+                alwaysAsk: true,
+            });
             if (name) await manager.setActiveProfile(name);
         }),
 

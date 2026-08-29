@@ -18,6 +18,19 @@ async function insertOrOpen(text: string): Promise<void> {
     await vscode.window.showTextDocument(document);
 }
 
+/**
+ * The statement behind Preview Rows.
+ *
+ * The row count comes from `clickhouse.query.previewRows`, so the menu item
+ * cannot promise a number the setting contradicts.
+ */
+export function previewStatement(database: string, table: string, limit?: number): string {
+    const rows =
+        limit ?? vscode.workspace.getConfiguration('clickhouse').get<number>('query.previewRows', 100);
+    const name = qualifiedName(database, table);
+    return rows > 0 ? `SELECT * FROM ${name} LIMIT ${rows}` : `SELECT * FROM ${name}`;
+}
+
 /** Run SQL that the user did not type, via the same gate as anything else. */
 async function runGenerated(runner: QueryRunner, analysisCache: AnalysisCache, sql: string): Promise<void> {
     await runner.run({ sql, statements: analysisCache.analyze(sql).program.statements });
@@ -38,13 +51,7 @@ export function registerExplorerCommands(
 
         vscode.commands.registerCommand('clickhouse.previewTable', async (node: ExplorerNode) => {
             if (node?.kind !== 'table') return;
-            const limit = vscode.workspace.getConfiguration('clickhouse').get<number>('query.autoLimit', 1000);
-            const name = qualifiedName(node.database, node.table.name);
-            await runGenerated(
-                runner,
-                analysisCache,
-                limit > 0 ? `SELECT * FROM ${name} LIMIT ${limit}` : `SELECT * FROM ${name}`
-            );
+            await runGenerated(runner, analysisCache, previewStatement(node.database, node.table.name));
         }),
 
         vscode.commands.registerCommand('clickhouse.showCreateTable', async (node: ExplorerNode) => {

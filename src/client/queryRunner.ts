@@ -69,8 +69,17 @@ function nearestStatement(statements: Statement[], offset: number): Statement | 
     return best;
 }
 
-export class QueryRunner {
+export class QueryRunner implements vscode.Disposable {
     private active: { client: ClickHouseClient; queryId: string; controller: AbortController } | undefined;
+
+    /**
+     * A running query needs to look like it is running.
+     *
+     * ClickHouse reports progress only in the summary at the end - there are no
+     * usable in-flight progress headers - so this counts what has actually
+     * arrived, which is honest and is what people want to know anyway.
+     */
+    private readonly status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
 
     constructor(
         private readonly connections: ConnectionManager,
@@ -144,6 +153,8 @@ export class QueryRunner {
         const controller = new AbortController();
 
         this.active = { client, queryId, controller };
+        const started = Date.now();
+        this.showProgress(0, started);
         this.panel.noteTransport(client.transportName);
         this.panel.begin(
             {
@@ -167,7 +178,10 @@ export class QueryRunner {
                 // streamed once. Re-sending them at the end would double the
                 // traffic and throw away what the view had already drawn.
                 onColumns: columns => this.panel.setColumns(columns),
-                onRows: (rows, total) => this.panel.appendRows(rows, total),
+                onRows: (rows, total) => {
+                    this.panel.appendRows(rows, total);
+                    this.showProgress(total, started);
+                },
                 onTrace: note => this.panel.trace(note),
             });
 
@@ -176,8 +190,11 @@ export class QueryRunner {
                     elapsedMs: result.elapsedMs,
                     readRows: result.summary?.readRows,
                     readBytes: result.summary?.readBytes,
-                    resultRows: result.summary?.resultRows ?? result.rows.length,
+                    // The server reports result_rows as 0 for a streamed
+                    // result, so what actually arrived is the honest number.
+                    resultRows: result.summary?.resultRows || result.rows.length,
                     writtenRows: result.summary?.writtenRows,
+                    memoryBytes: result.summary?.memoryBytes,
                 },
                 result.truncated
             );
@@ -206,7 +223,21 @@ export class QueryRunner {
             });
         } finally {
             this.active = undefined;
+            this.status.hide();
         }
+    }
+
+    private showProgress(rows: number, started: number): void {
+        const seconds = Math.round((Date.now() - started) / 1000);
+        const counted = rows > 0 ? `${rows.toLocaleString()} rows` : 'waiting';
+        this.status.text = `$(sync~spin) ClickHouse: ${counted}${seconds > 0 ? ` · ${seconds}s` : ''}`;
+        this.status.tooltip = 'A query is running. Click to cancel.';
+        this.status.command = 'clickhouse.cancelQuery';
+        this.status.show();
+    }
+
+    dispose(): void {
+        this.status.dispose();
     }
 
     /** Abort the request and ask the server to stop the work. */

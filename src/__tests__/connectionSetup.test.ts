@@ -56,3 +56,27 @@ describe('suggestName', () => {
         expect(suggestName('localhost', ['local', 'local-2'])).toBe('local-3');
     });
 });
+
+describe('editConnection arguments', () => {
+    /** Mirrors how the command decides whether it was given a profile name. */
+    function resolvePreselection(preselected: unknown, profiles: string[]): string | undefined {
+        return typeof preselected === 'string' && profiles.includes(preselected) ? preselected : undefined;
+    }
+
+    const profiles = ['local', 'prod'];
+
+    it('accepts a known profile name', () => {
+        expect(resolvePreselection('prod', profiles)).toBe('prod');
+    });
+
+    it('ignores the context object a menu passes', () => {
+        // This is what made the command appear to do nothing: a truthy object
+        // was taken for a name, matched nothing, and returned silently.
+        expect(resolvePreselection({ view: 'clickhouseExplorer' }, profiles)).toBeUndefined();
+        expect(resolvePreselection(undefined, profiles)).toBeUndefined();
+    });
+
+    it('ignores a name that no longer exists', () => {
+        expect(resolvePreselection('deleted', profiles)).toBeUndefined();
+    });
+});

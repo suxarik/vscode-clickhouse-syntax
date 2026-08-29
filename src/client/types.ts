@@ -9,6 +9,18 @@ export interface ConnectionProfile {
     protocol?: 'http' | 'https';
     user?: string;
     database?: string;
+    /**
+     * How the profile authenticates. `password` sends the ClickHouse user and
+     * key headers; `token` sends a bearer token, which is what ClickHouse Cloud
+     * and JWT-fronted deployments expect. Either way the secret lives in the
+     * credential store, never here.
+     */
+    auth?: 'password' | 'token';
+    /**
+     * Accept a certificate that does not verify. Off by default, and worth
+     * saying out loud: it disables the protection TLS is there to provide.
+     */
+    allowInvalidCertificate?: boolean;
     /** Without this the profile refuses anything that is not a read. */
     allowWrite?: boolean;
     /** Writes on a protected profile need the profile name typed to confirm. */
@@ -24,6 +36,8 @@ export interface ResolvedConnection {
     url: string;
     user: string;
     password?: string;
+    auth: 'password' | 'token';
+    allowInvalidCertificate: boolean;
     database: string;
     allowWrite: boolean;
     isProtected: boolean;
@@ -43,6 +57,10 @@ export interface QuerySummary {
     totalRowsToRead?: number;
     resultRows?: number;
     resultBytes?: number;
+    /** Server-measured elapsed time. */
+    elapsedNs?: number;
+    /** Peak memory the query used. */
+    memoryBytes?: number;
 }
 
 export interface QueryResult {

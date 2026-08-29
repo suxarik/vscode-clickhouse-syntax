@@ -13,7 +13,7 @@ import {
     formatValue,
     isNumericType,
 } from '../format';
-import { filteredIndices, nextSort, sortedIndices, SortState, visibleWindow } from '../grid';
+import { columnWidths, filteredIndices, nextSort, sortedIndices, SortState, visibleWindow } from '../grid';
 import { ColumnMeta, HostMessage, ResultStatistics, SerializationFormat } from '../protocol';
 import { Transport } from './transport';
 
@@ -22,6 +22,10 @@ const MAX_CELL_CHARS = 200;
 
 interface State {
     columns: ColumnMeta[];
+    /** Shared width per column, in characters. */
+    widths: number[];
+    /** Widths are measured once, so columns do not jump as rows stream in. */
+    widthsMeasured: boolean;
     rows: unknown[][];
     order: number[];
     sort?: SortState;
@@ -37,6 +41,8 @@ interface State {
 export class GridView {
     private state: State = {
         columns: [],
+        widths: [],
+        widthsMeasured: false,
         rows: [],
         order: [],
         filter: '',
@@ -83,6 +89,27 @@ export class GridView {
         this.transport.post({ type: 'ready' });
     }
 
+    /** Measure once there is something to measure, then leave it alone. */
+    private measureColumns(): void {
+        if (this.state.widthsMeasured) return;
+        if (this.state.columns.length === 0) return;
+
+        this.state.widths = columnWidths(this.state.columns, this.state.rows);
+        // Header-only widths are provisional; wait for rows before fixing them.
+        if (this.state.rows.length > 0) this.state.widthsMeasured = true;
+        this.headSignature = '';
+    }
+
+    private applyWidth(cell: HTMLElement, index: number): void {
+        const chars = this.state.widths[index];
+        if (chars === undefined) return;
+        // `ch` matches the grid's monospace font exactly, so header and body
+        // land on the same boundaries.
+        cell.style.flex = `0 0 ${chars}ch`;
+        cell.style.width = `${chars}ch`;
+        cell.style.maxWidth = 'none';
+    }
+
     private must(selector: string): HTMLElement {
         const element = this.root.querySelector<HTMLElement>(selector);
         if (!element) throw new Error(`Result view is missing ${selector}`);
@@ -96,6 +123,8 @@ export class GridView {
             case 'begin':
                 this.state = {
                     columns: [],
+                    widths: [],
+                    widthsMeasured: false,
                     rows: [],
                     order: [],
                     filter: this.state.filter,
@@ -113,12 +142,14 @@ export class GridView {
                 // Columns arrive after `begin`, once the server has named them.
                 // The rows already streamed in must survive this.
                 this.state.columns = message.columns;
+                this.measureColumns();
                 this.renderHead();
                 this.renderAll();
                 break;
 
             case 'rows':
-                this.state.rows.push(...message.rows);
+                for (const row of message.rows) this.state.rows.push(row);
+                this.measureColumns();
                 this.reindex();
                 this.renderAll();
                 break;
@@ -221,7 +252,7 @@ export class GridView {
     private renderHead(): void {
         const signature = `${this.state.columns.map(c => `${c.name}:${c.type}`).join('|')}#${
             this.state.sort ? `${this.state.sort.column}:${this.state.sort.direction}` : '-'
-        }`;
+        }#${this.state.widths.join(',')}`;
         if (signature === this.headSignature) return;
         this.headSignature = signature;
 
@@ -243,6 +274,7 @@ export class GridView {
                 this.state.sort?.column === index ? (this.state.sort.direction === 'asc' ? ' ▲' : ' ▼') : '';
             cell.textContent = `${column.name}${arrow}`;
             cell.title = `${column.name} — ${column.type}`;
+            this.applyWidth(cell, index);
             row.appendChild(cell);
         });
 
@@ -299,6 +331,7 @@ export class GridView {
                 cell.textContent = text;
                 cell.title = text;
             }
+            this.applyWidth(cell, columnIndex);
             row.appendChild(cell);
         });
 
@@ -317,6 +350,7 @@ export class GridView {
         if (stats?.elapsedMs !== undefined) parts.push(formatDuration(stats.elapsedMs));
         if (stats?.readRows !== undefined) parts.push(`read ${formatCount(stats.readRows)} rows`);
         if (stats?.readBytes !== undefined) parts.push(formatBytes(stats.readBytes));
+        if (stats?.memoryBytes) parts.push(`${formatBytes(stats.memoryBytes)} peak`);
         if (this.state.profile) parts.push(`· ${this.state.profile}`);
 
         this.elements.footer.textContent = parts.join('  ');

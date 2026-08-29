@@ -15,8 +15,11 @@ import {
 } from '../results/format';
 import { FILE_EXTENSION, serialize } from '../results/serialize';
 import {
+    columnWidths,
     compareValues,
     filteredIndices,
+    MAX_COLUMN_CHARS,
+    MIN_COLUMN_CHARS,
     nextSort,
     sortedIndices,
     visibleWindow,
@@ -294,5 +297,45 @@ describe('nextSort', () => {
 
     it('starts fresh on a different column', () => {
         expect(nextSort({ column: 0, direction: 'desc' }, 1)).toEqual({ column: 1, direction: 'asc' });
+    });
+});
+
+describe('columnWidths', () => {
+    const columns: ColumnMeta[] = [
+        { name: 'id', type: 'UInt64' },
+        { name: 'name', type: 'String' },
+    ];
+
+    it('widens a column to fit its values', () => {
+        const [, nameWidth] = columnWidths(columns, [['1', 'a-very-long-value-here']]);
+        expect(nameWidth).toBe('a-very-long-value-here'.length);
+    });
+
+    it('never goes narrower than the header', () => {
+        const [, nameWidth] = columnWidths(columns, [['1', 'x']]);
+        // Room for the name plus the sort arrow.
+        expect(nameWidth).toBeGreaterThanOrEqual('name'.length);
+    });
+
+    it('clamps very wide values', () => {
+        const [, nameWidth] = columnWidths(columns, [['1', 'x'.repeat(500)]]);
+        expect(nameWidth).toBe(MAX_COLUMN_CHARS);
+    });
+
+    it('keeps a floor for tiny columns', () => {
+        const [width] = columnWidths([{ name: 'n', type: 'String' }], [['x']]);
+        expect(width).toBeGreaterThanOrEqual(MIN_COLUMN_CHARS);
+    });
+
+    it('samples rather than scanning every row', () => {
+        // The widening value sits past the sample, so it is not measured.
+        const rows: unknown[][] = Array.from({ length: 1000 }, () => ['1', 'short']);
+        rows[900] = ['1', 'x'.repeat(50)];
+        const [, nameWidth] = columnWidths(columns, rows, 100);
+        expect(nameWidth).toBeLessThan(50);
+    });
+
+    it('handles an empty result', () => {
+        expect(columnWidths(columns, [])).toHaveLength(2);
     });
 });

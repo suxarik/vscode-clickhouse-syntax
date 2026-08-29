@@ -378,3 +378,43 @@ describe('horizontal scrolling', () => {
         expect((root.querySelector('.ch-head') as HTMLElement).scrollLeft).toBe(120);
     });
 });
+
+describe('column alignment', () => {
+    /** Widths as applied to a row's cells, ignoring the gutter. */
+    function widthsOf(root: HTMLElement, selector: string): string[] {
+        const row = root.querySelector(selector);
+        return [...(row?.querySelectorAll('.ch-cell') ?? [])].slice(1).map(c => (c as HTMLElement).style.width);
+    }
+
+    it('gives header and body cells the same widths', () => {
+        // Sized independently, a wide value widens its body cell but not its
+        // header, so the columns drift apart as you scroll across.
+        const { root, send } = mount();
+        start(send);
+        send({ type: 'rows', rows: [['1', 'a-fairly-long-value']], total: 1 });
+
+        const head = widthsOf(root, '.ch-head .ch-row');
+        const body = widthsOf(root, '.ch-body .ch-row');
+        expect(head).toEqual(body);
+        expect(head.every(width => width.endsWith('ch'))).toBe(true);
+    });
+
+    it('does not resize columns as more rows stream in', () => {
+        const { root, send } = mount();
+        start(send);
+        send({ type: 'rows', rows: [['1', 'short']], total: 1 });
+        const before = widthsOf(root, '.ch-head .ch-row');
+
+        send({ type: 'rows', rows: [['2', 'a-much-much-longer-value']], total: 2 });
+        expect(widthsOf(root, '.ch-head .ch-row')).toEqual(before);
+    });
+
+    it('keeps widths matched after sorting', () => {
+        const { root, send } = mount();
+        start(send);
+        send({ type: 'rows', rows: [['2', 'b'], ['1', 'a']], total: 2 });
+        (root.querySelector('.ch-head [data-column="0"]') as HTMLElement).click();
+
+        expect(widthsOf(root, '.ch-head .ch-row')).toEqual(widthsOf(root, '.ch-body .ch-row'));
+    });
+});

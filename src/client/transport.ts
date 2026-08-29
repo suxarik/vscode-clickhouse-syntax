@@ -23,6 +23,8 @@ export interface SendRequest {
     timeoutMs?: number;
     /** Progress notes, so a failure names the transport that produced it. */
     onTrace?: (note: string) => void;
+    /** Accept a certificate that does not verify. Opt-in, per profile. */
+    allowInvalidCertificate?: boolean;
 }
 
 export interface SendResponse {
@@ -105,6 +107,8 @@ interface NodeRequestOptions {
     method: string;
     headers: Record<string, string>;
     signal?: AbortSignal;
+    /** https only; ignored for plain http. */
+    rejectUnauthorized?: boolean;
     /**
      * Try IPv4 and IPv6 concurrently and keep whichever connects first.
      *
@@ -248,6 +252,7 @@ export function createNodeSender(
                     autoSelectFamily: true,
                     autoSelectFamilyAttemptTimeout: 500,
                 };
+                if (request.allowInvalidCertificate) requestOptions.rejectUnauthorized = false;
 
                 const start = (callback: (response: NodeIncoming) => void): NodeClientRequest => {
                     const ClientRequest = module.ClientRequest;
