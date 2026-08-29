@@ -13,7 +13,6 @@ import { ConnectionManager } from './connectionManager';
 import { TableStatistics, tableStatistics } from './introspection';
 
 export type ExplorerNode =
-    | { kind: 'message'; text: string }
     | { kind: 'database'; name: string }
     | { kind: 'table'; database: string; table: SchemaTable }
     | { kind: 'column'; database: string; table: string; column: SchemaColumn };
@@ -49,12 +48,6 @@ export class ExplorerProvider implements vscode.TreeDataProvider<ExplorerNode> {
 
     getTreeItem(node: ExplorerNode): vscode.TreeItem {
         switch (node.kind) {
-            case 'message': {
-                const item = new vscode.TreeItem(node.text, vscode.TreeItemCollapsibleState.None);
-                item.contextValue = 'clickhouse.message';
-                return item;
-            }
-
             case 'database': {
                 const item = new vscode.TreeItem(node.name, vscode.TreeItemCollapsibleState.Collapsed);
                 item.iconPath = new vscode.ThemeIcon('database');
@@ -114,16 +107,9 @@ export class ExplorerProvider implements vscode.TreeDataProvider<ExplorerNode> {
         const schema = this.schemaManager.getSchema();
 
         if (!node) {
-            if (!schema || schema.databases.length === 0) {
-                return [
-                    {
-                        kind: 'message',
-                        text: this.connections.activeProfileName()
-                            ? 'No schema loaded - run ClickHouse: Reload Schema'
-                            : 'No connection selected',
-                    },
-                ];
-            }
+            // An empty array lets the view's welcome content show instead, which
+            // can offer "Add Connection" rather than stating a dead end.
+            if (!schema || schema.databases.length === 0) return [];
             void this.loadStatistics();
             return schema.databases
                 .map(database => ({ kind: 'database' as const, name: database.name }))

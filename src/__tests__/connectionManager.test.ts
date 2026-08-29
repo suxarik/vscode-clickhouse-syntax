@@ -237,11 +237,21 @@ describe('status bar', () => {
         return (vscode.window.createStatusBarItem as jest.Mock).mock.results.at(-1)!.value;
     }
 
-    it('prompts to add a profile when there are none', () => {
+    it('offers to connect when there are no profiles', () => {
         setProfiles([]);
         const { context } = makeContext();
         const manager = new ConnectionManager(context);
-        expect(statusBar().text).toContain('no connection');
+        // The empty state must be an offer, not a statement of fact.
+        expect(statusBar().text).toContain('connect');
+        expect(statusBar().command).toBe('clickhouse.addConnection');
+        manager.dispose();
+    });
+
+    it('switches the click target once a profile exists', () => {
+        setProfiles([{ name: 'solo', host: 'h' }]);
+        const { context } = makeContext();
+        const manager = new ConnectionManager(context);
+        expect(statusBar().command).toBe('clickhouse.selectConnection');
         manager.dispose();
     });
 

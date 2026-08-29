@@ -17,6 +17,7 @@ import { AnalysisCache } from './analysis';
 import { RULES } from './lint/engine';
 import { ConnectionManager } from './client/connectionManager';
 import { registerConnectionCommands } from './client/commands';
+import { registerConnectionSetupCommands } from './client/connectionSetup';
 import { ResultsPanel } from './results/resultsPanel';
 import { QueryRunner } from './client/queryRunner';
 import { registerRunCodeLens, registerRunCommands } from './client/runCommands';
@@ -64,7 +65,11 @@ export function activate(context: vscode.ExtensionContext) {
     const catalog = new Catalog(context.extensionUri);
     const schemaManager = new SchemaManager(context);
     const connections = new ConnectionManager(context);
-    context.subscriptions.push(connections, ...registerConnectionCommands(connections));
+    context.subscriptions.push(
+        connections,
+        ...registerConnectionCommands(connections),
+        ...registerConnectionSetupCommands(connections)
+    );
     const detector = new LanguageDetector(context);
     context.subscriptions.push(schemaManager, detector);
 

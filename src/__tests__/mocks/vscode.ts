@@ -26,6 +26,7 @@ export const CodeActionKind = {
 };
 
 export const ConfigurationTarget = { Global: 1, Workspace: 2, WorkspaceFolder: 3 };
+export const QuickPickItemKind = { Separator: -1, Default: 0 };
 export const ProgressLocation = { SourceControl: 1, Window: 10, Notification: 15 };
 export const StatusBarAlignment = { Left: 1, Right: 2 };
 
@@ -335,6 +336,11 @@ export const workspace = {
         get: jest.fn((key: string, defaultValue?: unknown) =>
             Object.prototype.hasOwnProperty.call(configValues, key) ? configValues[key] : defaultValue
         ),
+        inspect: jest.fn((key: string) => ({
+            key,
+            globalValue: configValues[key],
+            workspaceValue: undefined,
+        })),
         update: jest.fn(),
     })),
     findFiles: jest.fn(async () => [] as Uri[]),

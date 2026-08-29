@@ -3,44 +3,57 @@
  */
 import * as vscode from 'vscode';
 import { ConnectionManager } from './connectionManager';
-import { ClickHouseError } from './types';
 
-function describe(error: unknown): string {
-    if (error instanceof ClickHouseError) {
-        return error.code !== undefined ? `${error.message} (code ${error.code})` : error.message;
-    }
-    return error instanceof Error ? error.message : String(error);
-}
+const ADD_NEW = '$(add) Add a connection…';
 
+/**
+ * Choose a profile, always offering the way to create one.
+ *
+ * Being told there are no profiles is not useful; being offered to make one is.
+ */
 async function pickProfile(
     manager: ConnectionManager,
-    placeHolder: string
+    placeHolder: string,
+    options: { offerAdd?: boolean } = {}
 ): Promise<string | undefined> {
     const profiles = manager.profiles();
+    const offerAdd = options.offerAdd !== false;
+
     if (profiles.length === 0) {
-        vscode.window.showWarningMessage(
-            'ClickHouse: no connection profiles. Add one to "clickhouse.connections".'
-        );
+        if (!offerAdd) {
+            vscode.window.showWarningMessage('ClickHouse: there are no connection profiles yet.');
+            return undefined;
+        }
+        await vscode.commands.executeCommand('clickhouse.addConnection');
         return undefined;
     }
-    if (profiles.length === 1) return profiles[0].name;
 
     const active = manager.activeProfileName();
-    const picked = await vscode.window.showQuickPick(
-        profiles.map(profile => ({
-            label: profile.name,
-            description: `${profile.protocol ?? 'http'}://${profile.host}:${profile.port ?? 8123}`,
-            detail: [
-                profile.allowWrite === true ? 'writes permitted' : 'read-only',
-                profile.protected === true ? 'protected' : '',
-                profile.name === active ? 'active' : '',
-            ]
-                .filter(Boolean)
-                .join(' · '),
-        })),
-        { placeHolder }
-    );
-    return picked?.label;
+    const items: vscode.QuickPickItem[] = profiles.map(profile => ({
+        label: profile.name,
+        description: `${profile.protocol ?? 'http'}://${profile.host}:${profile.port ?? 8123}`,
+        detail: [
+            profile.allowWrite === true ? 'writes permitted' : 'read-only',
+            profile.protected === true ? 'protected' : '',
+            profile.name === active ? 'active' : '',
+        ]
+            .filter(Boolean)
+            .join(' · '),
+    }));
+    if (offerAdd) {
+        items.push({ label: '', kind: vscode.QuickPickItemKind.Separator }, { label: ADD_NEW });
+    }
+
+    // With one profile and nothing to add, there is nothing to ask.
+    if (profiles.length === 1 && !offerAdd) return profiles[0].name;
+
+    const picked = await vscode.window.showQuickPick(items, { placeHolder });
+    if (!picked) return undefined;
+    if (picked.label === ADD_NEW) {
+        await vscode.commands.executeCommand('clickhouse.addConnection');
+        return undefined;
+    }
+    return picked.label;
 }
 
 export function registerConnectionCommands(manager: ConnectionManager): vscode.Disposable[] {
@@ -60,30 +73,21 @@ export function registerConnectionCommands(manager: ConnectionManager): vscode.D
             const name = await pickProfile(manager, 'Test which connection?');
             if (!name) return;
 
-            const client = await manager.client(name);
-            if (!client) return;
-
             await vscode.window.withProgress(
                 { location: vscode.ProgressLocation.Notification, title: `ClickHouse: testing '${name}'…` },
                 async () => {
-                    try {
-                        const result = await client.query(
-                            'SELECT version(), currentUser(), currentDatabase(), uptime()',
-                            { readOnly: true, maxExecutionTime: 15 }
-                        );
-                        const [version, user, database, uptime] = result.rows[0] ?? [];
-                        vscode.window.showInformationMessage(
-                            `ClickHouse '${name}': v${version} as ${user}, database ${database}, up ${uptime}s.`
-                        );
-                    } catch (error) {
-                        vscode.window.showErrorMessage(`ClickHouse '${name}': ${describe(error)}`);
+                    const outcome = await manager.testProfile(name);
+                    if (outcome.ok) {
+                        vscode.window.showInformationMessage(`ClickHouse '${name}': ${outcome.description}`);
+                    } else {
+                        vscode.window.showErrorMessage(`ClickHouse '${name}': ${outcome.description}`);
                     }
                 }
             );
         }),
 
         vscode.commands.registerCommand('clickhouse.setConnectionPassword', async () => {
-            const name = await pickProfile(manager, 'Set the password for which connection?');
+            const name = await pickProfile(manager, 'Set the password for which connection?', { offerAdd: false });
             if (!name) return;
             const password = await vscode.window.showInputBox({
                 prompt: `Password for ClickHouse profile '${name}'`,
@@ -98,7 +102,7 @@ export function registerConnectionCommands(manager: ConnectionManager): vscode.D
         }),
 
         vscode.commands.registerCommand('clickhouse.clearConnectionPassword', async () => {
-            const name = await pickProfile(manager, 'Clear the password for which connection?');
+            const name = await pickProfile(manager, 'Clear the password for which connection?', { offerAdd: false });
             if (!name) return;
             await manager.clearPassword(name);
             vscode.window.showInformationMessage(`ClickHouse: password for '${name}' cleared.`);

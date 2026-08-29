@@ -41,7 +41,8 @@
   },
   "activationEvents": [
     "onLanguage:sql",
-    "onLanguage:clickhouse"
+    "onLanguage:clickhouse",
+    "onView:clickhouseExplorer"
   ],
   "main": "./dist/extension.js",
   "browser": "./dist/web/extension.js",
@@ -204,6 +205,22 @@
         "command": "clickhouse.selectFromTable",
         "title": "Insert SELECT Statement",
         "category": "ClickHouse"
+      },
+      {
+        "command": "clickhouse.addConnection",
+        "title": "Add Connection",
+        "category": "ClickHouse",
+        "icon": "$(add)"
+      },
+      {
+        "command": "clickhouse.editConnections",
+        "title": "Edit Connections",
+        "category": "ClickHouse"
+      },
+      {
+        "command": "clickhouse.removeConnection",
+        "title": "Remove Connection",
+        "category": "ClickHouse"
       }
     ],
     "menus": {
@@ -322,13 +339,45 @@
         {
           "command": "clickhouse.selectFromTable",
           "when": "false"
+        },
+        {
+          "command": "clickhouse.addConnection",
+          "when": "true"
+        },
+        {
+          "command": "clickhouse.editConnections",
+          "when": "true"
+        },
+        {
+          "command": "clickhouse.removeConnection",
+          "when": "true"
         }
       ],
       "view/title": [
         {
+          "command": "clickhouse.addConnection",
+          "when": "view == clickhouseExplorer",
+          "group": "navigation@1"
+        },
+        {
           "command": "clickhouse.refreshExplorer",
           "when": "view == clickhouseExplorer",
-          "group": "navigation"
+          "group": "navigation@2"
+        },
+        {
+          "command": "clickhouse.selectConnection",
+          "when": "view == clickhouseExplorer",
+          "group": "1_connection"
+        },
+        {
+          "command": "clickhouse.editConnections",
+          "when": "view == clickhouseExplorer",
+          "group": "1_connection"
+        },
+        {
+          "command": "clickhouse.removeConnection",
+          "when": "view == clickhouseExplorer",
+          "group": "1_connection"
         }
       ],
       "view/item/context": [
@@ -760,7 +809,24 @@
           "contextualTitle": "ClickHouse"
         }
       ]
-    }
+    },
+    "viewsWelcome": [
+      {
+        "view": "clickhouseExplorer",
+        "contents": "Connect to a ClickHouse server to browse its tables and run queries.\n[Add Connection](command:clickhouse.addConnection)\nYour password is stored in the OS credential store, never in settings.\n",
+        "when": "!clickhouse.hasConnections"
+      },
+      {
+        "view": "clickhouseExplorer",
+        "contents": "Choose which server to work against.\n[Select Connection](command:clickhouse.selectConnection)\n[Add Another](command:clickhouse.addConnection)\n",
+        "when": "clickhouse.hasConnections && !clickhouse.hasActiveConnection"
+      },
+      {
+        "view": "clickhouseExplorer",
+        "contents": "No tables loaded yet.\n[Reload Schema](command:clickhouse.refreshExplorer)\n[Test Connection](command:clickhouse.testConnection)\n",
+        "when": "clickhouse.hasActiveConnection"
+      }
+    ]
   },
   "scripts": {
     "vscode:prepublish": "npm run package:bundle",

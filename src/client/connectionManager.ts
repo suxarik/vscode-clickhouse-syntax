@@ -92,6 +92,12 @@ export function resolveProfile(
     };
 }
 
+export interface ProfileTestResult {
+    ok: boolean;
+    /** One line suitable for a notification. */
+    description: string;
+}
+
 export class ConnectionManager implements vscode.Disposable {
     private readonly statusBar: vscode.StatusBarItem;
     private readonly disposables: vscode.Disposable[] = [];
@@ -107,10 +113,28 @@ export class ConnectionManager implements vscode.Disposable {
 
         this.disposables.push(
             vscode.workspace.onDidChangeConfiguration(e => {
-                if (e.affectsConfiguration('clickhouse.connections')) this.updateStatusBar();
+                if (e.affectsConfiguration('clickhouse.connections')) {
+                    this.updateStatusBar();
+                    void this.publishContext();
+                }
             })
         );
         this.updateStatusBar();
+        void this.publishContext();
+    }
+
+    /**
+     * Context keys drive the tree's welcome content, which is what turns an
+     * empty explorer from a dead end into an offer to connect.
+     */
+    private async publishContext(): Promise<void> {
+        const profiles = this.profiles();
+        await vscode.commands.executeCommand('setContext', 'clickhouse.hasConnections', profiles.length > 0);
+        await vscode.commands.executeCommand(
+            'setContext',
+            'clickhouse.hasActiveConnection',
+            this.activeProfileName() !== undefined
+        );
     }
 
     profiles(): ConnectionProfile[] {
@@ -139,7 +163,24 @@ export class ConnectionManager implements vscode.Disposable {
     async setActiveProfile(name: string | undefined): Promise<void> {
         await this.context.workspaceState.update(ACTIVE_PROFILE_KEY, name);
         this.updateStatusBar();
+        await this.publishContext();
         this.onDidChangeEmitter.fire(name);
+    }
+
+    /** Connect and report what came back, for the setup flow and Test Connection. */
+    async testProfile(name: string): Promise<ProfileTestResult> {
+        const client = await this.client(name);
+        if (!client) return { ok: false, description: 'the profile could not be resolved' };
+        try {
+            const result = await client.query('SELECT version(), currentUser(), currentDatabase()', {
+                readOnly: true,
+                maxExecutionTime: 15,
+            });
+            const [version, user, database] = result.rows[0] ?? [];
+            return { ok: true, description: `v${version} as ${user}, database ${database}` };
+        } catch (error) {
+            return { ok: false, description: error instanceof Error ? error.message : String(error) };
+        }
     }
 
     // ── Credentials ──────────────────────────────────────────────────────────
@@ -191,12 +232,14 @@ export class ConnectionManager implements vscode.Disposable {
     updateStatusBar(): void {
         const profiles = this.profiles();
         if (profiles.length === 0) {
-            this.statusBar.text = '$(plug) ClickHouse: no connection';
-            this.statusBar.tooltip = 'Add a profile to "clickhouse.connections" to run queries.';
+            this.statusBar.text = '$(plug) ClickHouse: connect';
+            this.statusBar.tooltip = 'No ClickHouse connection yet. Click to add one.';
+            this.statusBar.command = 'clickhouse.addConnection';
             this.statusBar.backgroundColor = undefined;
             this.statusBar.show();
             return;
         }
+        this.statusBar.command = 'clickhouse.selectConnection';
 
         const active = this.activeProfile();
         if (!active) {

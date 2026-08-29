@@ -81,13 +81,13 @@ describe('explorer tree', () => {
         ]);
     });
 
-    it('says so when there is no schema', async () => {
-        const empty = await makeSchemaManager(null);
-        (vscode as unknown as { __setConfig(v: Record<string, unknown>): void }).__setConfig({ connections: [] });
-        const explorer = new ExplorerProvider(empty, new ConnectionManager(makeContext()));
-        const [node] = explorer.getChildren();
-        expect(node.kind).toBe('message');
-        expect(node.kind === 'message' && node.text).toContain('No connection');
+    it('is empty when there is no schema, so the welcome content can show', () => {
+        // A dead-end message node would hide the view's welcome buttons.
+        const explorer = new ExplorerProvider(
+            { getSchema: () => null, getTables: () => [] } as unknown as SchemaManager,
+            new ConnectionManager(makeContext())
+        );
+        expect(explorer.getChildren()).toEqual([]);
     });
 
     it('describes a table with its engine', () => {
