@@ -23,8 +23,13 @@ export interface DocumentAnalysis {
 /**
  * Columns from the user's schema, falling back to the bundled `system` catalog.
  */
-export function makeColumnSource(schemaManager: SchemaManager, catalog: Catalog): ColumnSource {
+export function makeColumnSource(
+    schemaManager: SchemaManager,
+    catalog: Catalog,
+    dbt?: { resolve(call: 'ref' | 'source', args: string[]): { database?: string; table: string } | undefined }
+): ColumnSource {
     return {
+        resolveTemplate: (call, args) => dbt?.resolve(call, args),
         columnsOf(table: string, database?: string): string[] | undefined {
             if (database?.toLowerCase() === 'system') {
                 return catalog.systemTableSync(table)?.columns.map(column => column.name);
@@ -52,8 +57,14 @@ export class AnalysisCache implements vscode.Disposable {
     private readonly entries = new Map<string, DocumentAnalysis>();
     private columnSource: ColumnSource;
 
-    constructor(private readonly schemaManager: SchemaManager, private readonly catalog: Catalog) {
-        this.columnSource = makeColumnSource(schemaManager, catalog);
+    constructor(
+        private readonly schemaManager: SchemaManager,
+        private readonly catalog: Catalog,
+        private readonly dbt?: {
+            resolve(call: 'ref' | 'source', args: string[]): { database?: string; table: string } | undefined;
+        }
+    ) {
+        this.columnSource = makeColumnSource(schemaManager, catalog, dbt);
     }
 
     get(document: vscode.TextDocument): DocumentAnalysis {
@@ -77,7 +88,7 @@ export class AnalysisCache implements vscode.Disposable {
 
     /** Drop cached analyses; call when the schema or catalog changes. */
     invalidate(): void {
-        this.columnSource = makeColumnSource(this.schemaManager, this.catalog);
+        this.columnSource = makeColumnSource(this.schemaManager, this.catalog, this.dbt);
         this.entries.clear();
     }
 

@@ -29,6 +29,7 @@ import { ExplainDocumentProvider, registerExplainCommands } from './client/expla
 import { QueryHistory } from './client/history';
 import { registerHistoryCommands } from './client/historyCommands';
 import { registerNotebook } from './notebook';
+import { DbtProject } from './dbt/project';
 import { createLiveDiagnosticCollection, LiveValidator } from './client/liveDiagnostics';
 import { registerStructureProviders } from './providers/structureProvider';
 import { registerSemanticTokensProvider } from './providers/semanticTokensProvider';
@@ -76,7 +77,13 @@ export function activate(context: vscode.ExtensionContext) {
     const detector = new LanguageDetector(context);
     context.subscriptions.push(schemaManager, detector);
 
-    const analysisCache = new AnalysisCache(schemaManager, catalog);
+    // dbt models are `.sql` files too, and a `ref()` the manifest can resolve
+    // is a table whose columns we already know.
+    const dbt = new DbtProject();
+    void dbt.load();
+
+    const analysisCache = new AnalysisCache(schemaManager, catalog, dbt);
+    context.subscriptions.push(dbt, dbt.onDidChange(() => analysisCache.invalidate()));
     context.subscriptions.push(analysisCache);
 
     const resultsPanel = new ResultsPanel(context.extensionUri);
@@ -191,7 +198,7 @@ export function activate(context: vscode.ExtensionContext) {
     // ── IntelliSense providers ──
     context.subscriptions.push(
         registerHoverProvider(schemaManager, catalog),
-        registerCompletionProvider(schemaManager, catalog, analysisCache),
+        registerCompletionProvider(schemaManager, catalog, analysisCache, dbt),
         registerSignatureHelpProvider(catalog),
         registerCodeActionProvider(schemaManager),
         registerSemanticTokensProvider(analysisCache, catalog),

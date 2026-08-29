@@ -22,6 +22,11 @@ import {
 export interface ColumnSource {
     /** Column names, or undefined when the table is unknown. */
     columnsOf(table: string, database?: string): string[] | undefined;
+    /**
+     * What `{{ ref('x') }}` or `{{ source('a','b') }}` points at, when a dbt
+     * manifest says. Optional: without one a tag simply stays opaque.
+     */
+    resolveTemplate?(call: 'ref' | 'source', args: string[]): { database?: string; table: string } | undefined;
 }
 
 export type BoundTableKind = 'table' | 'cte' | 'subquery' | 'tableFunction';
@@ -305,18 +310,32 @@ class Binder {
     }
 
     private bindTableRefAsTable(ref: import('./ast').TableRef): BoundTable {
+        // A dbt tag names a relation the manifest can resolve; if it cannot,
+        // the table stays unknown rather than being invented.
+        const resolved = this.resolveTemplateRef(ref);
+        const table = resolved?.table ?? ref.table.name;
+        const database = resolved?.database ?? ref.database?.name;
+
         return {
             label: ref.alias?.name ?? ref.table.name,
             kind: 'table',
-            table: ref.table.name,
-            database: ref.database?.name,
+            table,
+            database,
             alias: ref.alias?.name,
-            columns: this.columnSource.columnsOf(ref.table.name, ref.database?.name),
+            columns: this.columnSource.columnsOf(table, database),
             final: ref.final,
             node: ref,
             start: ref.start,
             end: ref.end,
         };
+    }
+
+    private resolveTemplateRef(
+        ref: import('./ast').TableRef
+    ): { database?: string; table: string } | undefined {
+        const template = ref.template;
+        if (!template?.call || !template.arguments) return undefined;
+        return this.columnSource.resolveTemplate?.(template.call, template.arguments);
     }
 
     private bindSource(source: TableSource, scope: Scope): BoundTable {

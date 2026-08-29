@@ -75,6 +75,17 @@ export const RULES: Rule[] = [
             for (const scope of binding.scopes) {
                 for (const table of scope.tables) {
                     if (table.kind !== 'table' || !table.table) continue;
+                    // A dbt tag the manifest could not resolve names something
+                    // only dbt can work out. Reporting it as missing would put
+                    // a warning on every model in a project that has not been
+                    // compiled yet, which teaches people to ignore warnings.
+                    if (
+                        table.node.kind === 'TableRef' &&
+                        table.node.template &&
+                        !context.schemaManager.findTable(table.table, table.database)
+                    ) {
+                        continue;
+                    }
                     if (table.database?.toLowerCase() === 'system') {
                         if (!context.catalog.systemTablesReady) continue;
                         if (context.catalog.systemTableSync(table.table)) continue;

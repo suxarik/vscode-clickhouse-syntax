@@ -19,6 +19,14 @@ export enum TokenKind {
     Word = 'word',
     Operator = 'operator',
     Punct = 'punct',
+    /**
+     * A Jinja tag: `{{ ref('x') }}`, `{% if … %}` or `{# a comment #}`.
+     *
+     * Lexed whole and left opaque. A dbt model is not ClickHouse SQL until dbt
+     * has compiled it, and guessing at what a tag expands to would be worse
+     * than admitting we do not know.
+     */
+    Template = 'template',
     Unknown = 'unknown',
 }
 
@@ -153,6 +161,20 @@ export function tokenize(text: string): Token[] {
             continue;
         }
 
+        // Jinja: {{ expression }}, {% statement %}, {# comment #}
+        if (c === '{' && (text[i + 1] === '{' || text[i + 1] === '%' || text[i + 1] === '#')) {
+            const opener = text[i + 1];
+            const closer = opener === '{' ? '}}' : opener === '%' ? '%}' : '#}';
+            const start = i;
+            i += 2;
+            while (i < n && text.slice(i, i + 2) !== closer) i++;
+            // An unterminated tag runs to the end rather than being abandoned:
+            // half a document is worse than one bad token.
+            i = i < n ? i + 2 : n;
+            push(TokenKind.Template, start, i);
+            continue;
+        }
+
         // -- line comment
         if (c === '-' && text[i + 1] === '-') {
             const start = i;
@@ -275,8 +297,24 @@ export function isTrivia(token: Token): boolean {
     return (
         token.kind === TokenKind.Whitespace ||
         token.kind === TokenKind.LineComment ||
-        token.kind === TokenKind.BlockComment
+        token.kind === TokenKind.BlockComment ||
+        // `{% if … %}` and `{# … #}` wrap SQL rather than standing in for any,
+        // so skipping them leaves the statement between them parseable. `{{ … }}`
+        // stands where a value or a name goes and is not trivia.
+        isTemplateBlock(token)
     );
+}
+
+/** A `{% … %}` or `{# … #}` tag - control flow or a comment, never a value. */
+export function isTemplateBlock(token: Token): boolean {
+    return (
+        token.kind === TokenKind.Template && (token.text.startsWith('{%') || token.text.startsWith('{#'))
+    );
+}
+
+/** A `{{ … }}` tag, which stands where a name or a value would. */
+export function isTemplateExpression(token: Token): boolean {
+    return token.kind === TokenKind.Template && token.text.startsWith('{{');
 }
 
 export function isComment(token: Token): boolean {

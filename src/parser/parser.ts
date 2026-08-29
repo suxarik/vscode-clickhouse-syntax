@@ -34,6 +34,7 @@ import {
     TableSource,
     WindowDefinition,
 } from './ast';
+import { readTemplateCall, templateLabel } from './template';
 
 /** Binary operator precedence; higher binds tighter. */
 const BINARY_PRECEDENCE: Record<string, number> = {
@@ -521,6 +522,11 @@ class Parser {
             }
             this.expectPunct(']');
             return { kind: 'ArrayLiteral', items, start: open.start, end: this.lastEnd };
+        }
+
+        if (token.kind === TokenKind.Template) {
+            this.pos++;
+            return this.templateExpression(token);
         }
 
         if (this.atPunct('{')) {
@@ -1042,6 +1048,59 @@ class Parser {
         return node;
     }
 
+    /** A `{{ … }}` tag as an expression, with `ref`/`source` read out if present. */
+    private templateExpression(token: Token): import('./ast').TemplateExpression {
+        const node: import('./ast').TemplateExpression = {
+            kind: 'TemplateExpression',
+            text: token.text,
+            start: token.start,
+            end: token.end,
+        };
+        const parsed = readTemplateCall(token.text);
+        if (parsed) {
+            node.call = parsed.call;
+            node.arguments = parsed.arguments;
+        }
+        return node;
+    }
+
+    /**
+     * A tag in table position.
+     *
+     * It still becomes a `TableRef`, so everything downstream - the binder, the
+     * lint rules, the run gate - treats a dbt model as a table rather than as
+     * something it has never heard of. The name is the tag's own label, which
+     * the dbt manifest can later resolve to a real relation.
+     */
+    private templateTableRef(token: Token, start: number): TableRef {
+        const template = this.templateExpression(token);
+        const node: TableRef = {
+            kind: 'TableRef',
+            table: {
+                kind: 'Identifier',
+                name: templateLabel(token.text),
+                quoted: false,
+                start: token.start,
+                end: token.end,
+            },
+            final: false,
+            template,
+            start,
+            end: token.end,
+        };
+
+        const alias = this.parseAlias();
+        if (alias) {
+            node.alias = alias;
+            node.end = alias.end;
+        }
+        if (this.eat('FINAL')) {
+            node.final = true;
+            node.end = this.lastEnd;
+        }
+        return node;
+    }
+
     private parseTableSource(): TableSource | undefined {
         const start = this.here;
 
@@ -1061,6 +1120,13 @@ class Parser {
                 node.end = alias.end;
             }
             return node;
+        }
+
+        // `FROM {{ ref('users') }}` - a tag standing where a table name goes.
+        const tag = this.peek();
+        if (tag?.kind === TokenKind.Template) {
+            this.pos++;
+            return this.templateTableRef(tag, start);
         }
 
         if (!this.atName()) {
@@ -1615,6 +1681,11 @@ class Parser {
     }
 
     private parseStatement(): Statement | undefined {
+        // `{{ config(...) }}` opens most dbt models and emits nothing at all.
+        // A tag standing where a statement would is a macro call whose output
+        // we cannot know, so it is skipped rather than treated as a broken one.
+        while (this.peek()?.kind === TokenKind.Template) this.pos++;
+
         const start = this.here;
 
         if (this.at('SELECT') || this.at('WITH')) return this.parseSelect();

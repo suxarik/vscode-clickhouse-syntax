@@ -36,6 +36,7 @@ export type ExpressionKind =
     | 'Star'
     | 'SubqueryExpression'
     | 'Placeholder'
+    | 'TemplateExpression'
     | 'ErrorExpression';
 
 export type NodeKind =
@@ -193,6 +194,23 @@ export interface Placeholder extends NodeBase {
     name: string;
 }
 
+/**
+ * A Jinja tag standing where a value or a name would: `{{ ref('users') }}`.
+ *
+ * Left opaque on purpose. A dbt model is not ClickHouse SQL until dbt has
+ * compiled it, and the useful thing is not to guess at the expansion but to
+ * stop pretending the surrounding statement is broken.
+ */
+export interface TemplateExpression extends NodeBase {
+    kind: 'TemplateExpression';
+    /** The whole tag, braces included. */
+    text: string;
+    /** `ref` or `source` when the tag is one of those, for resolution. */
+    call?: 'ref' | 'source';
+    /** String arguments of that call, in order. */
+    arguments?: string[];
+}
+
 export interface ErrorExpression extends NodeBase {
     kind: 'ErrorExpression';
     text: string;
@@ -218,6 +236,7 @@ export type Expression =
     | Star
     | SubqueryExpression
     | Placeholder
+    | TemplateExpression
     | ErrorExpression;
 
 // ── Query structure ──────────────────────────────────────────────────────────
@@ -234,6 +253,8 @@ export interface TableRef extends NodeBase {
     table: Identifier;
     alias?: Identifier;
     final: boolean;
+    /** Set when the name was a Jinja tag rather than an identifier. */
+    template?: TemplateExpression;
 }
 
 export interface TableFunctionSource extends NodeBase {

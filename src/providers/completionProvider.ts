@@ -18,6 +18,7 @@ import { AnalysisCache } from '../analysis';
 import { BoundTable, scopeAt, visibleCtes, visibleTables } from '../parser/binder';
 import { resolveFunction, resolveFunctionSync } from '../functionInfo';
 import { CH_FUNCTION_DOCS } from '../functionDocs';
+import { dbtCompletionAt, dbtCompletionItems } from '../dbt/completion';
 
 /** Sort buckets. Lower sorts first in the completion list. */
 const enum Rank {
@@ -413,10 +414,41 @@ export async function resolveCompletion(item: Resolvable, catalog: Catalog): Pro
     return item;
 }
 
+/** Model and source names inside a `{{ ref('…') }}`, where the cursor is in a string. */
+function dbtItems(
+    document: vscode.TextDocument,
+    position: vscode.Position,
+    project: DbtNames | undefined
+): vscode.CompletionItem[] | undefined {
+    if (!project) return undefined;
+    const offset = document.offsetAt(position);
+    const request = dbtCompletionAt(document.getText(), offset);
+    if (!request) return undefined;
+
+    const range = new vscode.Range(document.positionAt(request.start), document.positionAt(request.end));
+    return dbtCompletionItems(request, project).map(name => {
+        const item = new vscode.CompletionItem(
+            name,
+            request.kind === 'model' ? vscode.CompletionItemKind.Class : vscode.CompletionItemKind.Module
+        );
+        item.detail = request.kind === 'model' ? 'dbt model' : 'dbt source';
+        item.range = range;
+        item.sortText = rankSort(Rank.Table, name);
+        return item;
+    });
+}
+
+/** The part of the dbt project completion needs. */
+export interface DbtNames {
+    modelNames(): string[];
+    sourceNames(): string[];
+}
+
 export function registerCompletionProvider(
     schemaManager: SchemaManager,
     catalog: Catalog,
-    analysisCache: AnalysisCache
+    analysisCache: AnalysisCache,
+    dbt?: DbtNames
 ): vscode.Disposable {
     return vscode.languages.registerCompletionItemProvider(
         [{ language: 'clickhouse' }, { language: 'sql' }],
@@ -428,6 +460,11 @@ export function registerCompletionProvider(
                 const config = vscode.workspace.getConfiguration('clickhouse');
                 if (!config.get<boolean>('completion.enabled', true)) return [];
                 try {
+                    // Checked first: the cursor is inside a string literal
+                    // there, where completion is otherwise suppressed.
+                    const dbtNames = dbtItems(document, position, dbt);
+                    if (dbtNames) return dbtNames;
+
                     const context = getSqlContext(document, position);
                     const dotCheck = isAfterDot(document, position);
                     // Clause detection comes from the token scan, which copes with
