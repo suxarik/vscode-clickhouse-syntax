@@ -137,6 +137,30 @@ describe('ClickHouse extension', () => {
         });
     });
 
+    it('stays inside its performance budget', async function (this: Mocha.Context) {
+        this.timeout(180_000);
+        // Runs the real parser, binder and completion builder in the real
+        // extension host. A budget nobody can check is a wish.
+        const measurements = await vscode.commands.executeCommand<Map<string, { ms?: number }>>(
+            'clickhouse.measurePerformance'
+        );
+        assert.ok(measurements, 'no measurements were returned');
+
+        const budgets: Record<string, number> = {
+            activation: 150,
+            parse: 20,
+            reparse: 5,
+            completion: 50,
+        };
+        const over: string[] = [];
+        for (const [id, limit] of Object.entries(budgets)) {
+            const ms = measurements.get(id)?.ms;
+            console.log(`      ${id.padEnd(12)} ${ms === undefined ? 'not measured' : `${ms.toFixed(2)} ms`} (budget ${limit} ms)`);
+            if (ms !== undefined && ms > limit) over.push(`${id}: ${ms.toFixed(2)} ms > ${limit} ms`);
+        }
+        assert.deepStrictEqual(over, [], `over budget — ${over.join('; ')}`);
+    });
+
     describe('as a notebook', () => {
         before(async function (this: Mocha.Context) {
             this.timeout(60_000);

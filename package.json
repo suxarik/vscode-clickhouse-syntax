@@ -276,6 +276,11 @@
         "title": "Scaffold a Table",
         "category": "ClickHouse",
         "icon": "$(new-file)"
+      },
+      {
+        "command": "clickhouse.showPerformanceStats",
+        "title": "Show Performance Stats",
+        "category": "ClickHouse"
       }
     ],
     "menus": {
@@ -438,6 +443,9 @@
         },
         {
           "command": "clickhouse.scaffoldTable"
+        },
+        {
+          "command": "clickhouse.showPerformanceStats"
         }
       ],
       "view/title": [

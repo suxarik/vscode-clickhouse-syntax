@@ -31,6 +31,7 @@ import { registerHistoryCommands } from './client/historyCommands';
 import { registerNotebook } from './notebook';
 import { DbtProject } from './dbt/project';
 import { registerMigrationCommands } from './migrate/commands';
+import { recordActivation, registerPerformanceCommand } from './perfCommand';
 import { createLiveDiagnosticCollection, LiveValidator } from './client/liveDiagnostics';
 import { registerStructureProviders } from './providers/structureProvider';
 import { registerSemanticTokensProvider } from './providers/semanticTokensProvider';
@@ -66,6 +67,10 @@ function formatterSelector(): vscode.DocumentSelector {
 }
 
 export function activate(context: vscode.ExtensionContext) {
+    // Measured rather than assumed: the plan's budget is 150 ms, and a budget
+    // nobody can check is a wish.
+    const activationStarted = performance.now();
+
     const catalog = new Catalog(context.extensionUri);
     const schemaManager = new SchemaManager(context);
     const connections = new ConnectionManager(context);
@@ -114,6 +119,7 @@ export function activate(context: vscode.ExtensionContext) {
         ...registerHistoryCommands(queryHistory, queryRunner, connections, analysisCache, validator),
         ...registerNotebook(connections, queryRunner, analysisCache, context.extensionUri),
         ...registerMigrationCommands(connections, schemaManager),
+        ...registerPerformanceCommand(schemaManager, catalog, analysisCache),
         connections.onDidChangeActiveProfile(() => explorer.reset())
     );
 
@@ -364,6 +370,9 @@ export function activate(context: vscode.ExtensionContext) {
             });
         })
     );
+
+    // Last line of activation, so the number is the whole of it.
+    recordActivation(performance.now() - activationStarted);
 }
 
 function formatWholeDocument(document: vscode.TextDocument): vscode.TextEdit[] {

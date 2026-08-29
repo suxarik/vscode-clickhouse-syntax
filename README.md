@@ -57,6 +57,9 @@ opens as a notebook by default; nothing else is taken over.
 - **Charts** for a two-column result — a label and a number, or a time and a
   number. Inline SVG in your theme's colours.
 
+See **[docs/runbooks.md](docs/runbooks.md)** for the format, the safety rules and
+how to write your own.
+
 ### 🧭 Understand a query before you run it
 
 - **EXPLAIN as a plan, not as text** — `PLAN indexes = 1`, `PIPELINE`, `ESTIMATE`,
