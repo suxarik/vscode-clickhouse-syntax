@@ -42,7 +42,8 @@
   "activationEvents": [
     "onLanguage:sql",
     "onLanguage:clickhouse",
-    "onView:clickhouseExplorer"
+    "onView:clickhouseExplorer",
+    "onNotebook:clickhouse-notebook"
   ],
   "main": "./dist/extension.js",
   "browser": "./dist/web/extension.js",
@@ -236,6 +237,17 @@
         "command": "clickhouse.debug.lastHistoryEntry",
         "title": "Last Query History Entry (internal)",
         "category": "ClickHouse"
+      },
+      {
+        "command": "clickhouse.newNotebook",
+        "title": "New Runbook",
+        "category": "ClickHouse",
+        "icon": "$(notebook)"
+      },
+      {
+        "command": "clickhouse.openAsNotebook",
+        "title": "Open as Runbook",
+        "category": "ClickHouse"
       }
     ],
     "menus": {
@@ -378,6 +390,13 @@
         {
           "command": "clickhouse.debug.lastHistoryEntry",
           "when": "false"
+        },
+        {
+          "command": "clickhouse.newNotebook"
+        },
+        {
+          "command": "clickhouse.openAsNotebook",
+          "when": "editorLangId == clickhouse || editorLangId == sql"
         }
       ],
       "view/title": [
@@ -932,6 +951,43 @@
               "onCommand:clickhouse.profileLastQuery"
             ]
           }
+        ]
+      }
+    ],
+    "notebooks": [
+      {
+        "type": "clickhouse-notebook",
+        "displayName": "ClickHouse Runbook",
+        "selector": [
+          {
+            "filenamePattern": "*.runbook.sql"
+          },
+          {
+            "filenamePattern": "*.chnb.sql"
+          },
+          {
+            "filenamePattern": "*.sql",
+            "priority": "option"
+          },
+          {
+            "filenamePattern": "*.chsql",
+            "priority": "option"
+          },
+          {
+            "filenamePattern": "*.ch.sql",
+            "priority": "option"
+          }
+        ]
+      }
+    ],
+    "notebookRenderer": [
+      {
+        "id": "clickhouse-result-grid",
+        "displayName": "ClickHouse Result Grid",
+        "entrypoint": "./dist/renderer.js",
+        "requiresMessaging": "optional",
+        "mimeTypes": [
+          "application/vnd.clickhouse.result+json"
         ]
       }
     ]

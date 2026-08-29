@@ -49,6 +49,17 @@ async function main() {
             external: ['node:http', 'node:https'],
             outfile: 'dist/results.js',
         }),
+        // The notebook output renderer: its own iframe, its own ESM bundle, and
+        // no `vscode` API at all. It imports the same GridView the webview does.
+        esbuild.context({
+            ...common,
+            entryPoints: ['src/notebook/renderer.ts'],
+            format: 'esm',
+            platform: 'browser',
+            target: 'es2022',
+            external: ['node:http', 'node:https'],
+            outfile: 'dist/renderer.js',
+        }),
         // The web build runs in a browser worker: no Node built-ins available.
         esbuild.context({
             ...common,

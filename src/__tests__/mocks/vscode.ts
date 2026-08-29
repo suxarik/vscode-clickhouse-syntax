@@ -348,7 +348,81 @@ export function __setConfigAt(target: number, key: string, value: unknown): void
 
 const disposable = () => ({ dispose: jest.fn() });
 
+// ── Notebooks ────────────────────────────────────────────────────────────────
+
+export const NotebookCellKind = { Markup: 1, Code: 2 };
+
+export class NotebookCellData {
+    metadata: unknown;
+    outputs: unknown[] = [];
+    executionSummary: unknown;
+    constructor(
+        public kind: number,
+        public value: string,
+        public languageId: string
+    ) {}
+}
+
+export class NotebookData {
+    metadata: unknown;
+    constructor(public cells: NotebookCellData[]) {}
+}
+
+export class NotebookCellOutputItem {
+    constructor(
+        public data: Uint8Array,
+        public mime: string
+    ) {}
+    static text(value: string, mime = 'text/plain') {
+        return new NotebookCellOutputItem(new TextEncoder().encode(value), mime);
+    }
+    static json(value: unknown, mime = 'application/json') {
+        return new NotebookCellOutputItem(new TextEncoder().encode(JSON.stringify(value)), mime);
+    }
+    static error(error: Error) {
+        return new NotebookCellOutputItem(
+            new TextEncoder().encode(JSON.stringify({ name: error.name, message: error.message })),
+            'application/vnd.code.notebook.error'
+        );
+    }
+}
+
+export class NotebookCellOutput {
+    constructor(
+        public items: NotebookCellOutputItem[],
+        public metadata?: unknown
+    ) {}
+}
+
+/** Controllers created in a test, so it can drive them the way VS Code would. */
+export const __notebookControllers: Record<string, unknown> = {};
+
+export const notebooks = {
+    createNotebookController: jest.fn((id: string, notebookType: string, label: string) => {
+        const controller = {
+            id,
+            notebookType,
+            label,
+            description: '' as string | undefined,
+            supportedLanguages: [] as string[],
+            supportsExecutionOrder: false,
+            executeHandler: undefined as unknown,
+            interruptHandler: undefined as unknown,
+            createNotebookCellExecution: jest.fn(),
+            dispose: jest.fn(() => void delete __notebookControllers[id]),
+        };
+        __notebookControllers[id] = controller;
+        return controller;
+    }),
+    createRendererMessaging: jest.fn(() => ({
+        onDidReceiveMessage: jest.fn(disposable),
+        postMessage: jest.fn(async () => true),
+    })),
+};
+
 export const workspace = {
+    registerNotebookSerializer: jest.fn(disposable),
+    openNotebookDocument: jest.fn(async () => ({})),
     getConfiguration: jest.fn(() => ({
         get: jest.fn((key: string, defaultValue?: unknown) =>
             Object.prototype.hasOwnProperty.call(configValues, key) ? configValues[key] : defaultValue
@@ -466,6 +540,7 @@ export const window = {
         dispose: jest.fn(),
     })),
     showInputBox: jest.fn(),
+    showNotebookDocument: jest.fn(async () => ({})),
     withProgress: jest.fn(async (_options: unknown, task: (p: unknown, t: unknown) => Promise<unknown>) =>
         task({ report: jest.fn() }, { isCancellationRequested: false, onCancellationRequested: jest.fn() })
     ),

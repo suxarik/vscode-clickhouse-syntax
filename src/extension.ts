@@ -28,6 +28,7 @@ import { registerExplorerCommands } from './client/explorerCommands';
 import { ExplainDocumentProvider, registerExplainCommands } from './client/explainCommands';
 import { QueryHistory } from './client/history';
 import { registerHistoryCommands } from './client/historyCommands';
+import { registerNotebook } from './notebook';
 import { createLiveDiagnosticCollection, LiveValidator } from './client/liveDiagnostics';
 import { registerStructureProviders } from './providers/structureProvider';
 import { registerSemanticTokensProvider } from './providers/semanticTokensProvider';
@@ -103,6 +104,7 @@ export function activate(context: vscode.ExtensionContext) {
         ...registerExplorerCommands(explorer, queryRunner, analysisCache, schemaSync),
         ...registerExplainCommands(connections, analysisCache, explainProvider),
         ...registerHistoryCommands(queryHistory, queryRunner, connections, analysisCache, validator),
+        ...registerNotebook(connections, queryRunner, analysisCache),
         connections.onDidChangeActiveProfile(() => explorer.reset())
     );
 

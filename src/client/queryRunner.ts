@@ -11,6 +11,7 @@ import { AnalysisCache } from '../analysis';
 import { Statement } from '../parser/ast';
 import { statementAt } from '../parser/walk';
 import { ResultsPanel } from '../results/resultsPanel';
+import { ResultSink } from '../results/sink';
 import { ConnectionManager } from './connectionManager';
 import { ClickHouseClient, newQueryId } from './httpClient';
 import { classifyStatement, gate, StatementSummary } from './safety';
@@ -128,7 +129,14 @@ export class QueryRunner implements vscode.Disposable {
         }
     }
 
-    async run(target: RunTarget): Promise<void> {
+    /**
+     * Run a statement, sending the result wherever the caller asks.
+     *
+     * The default is the result panel; a notebook cell passes its own sink and
+     * inherits the gate, the cancellation and the history entry unchanged.
+     */
+    async run(target: RunTarget, into?: ResultSink): Promise<void> {
+        const sink: ResultSink = into ?? this.panel;
         const profileName = this.connections.activeProfileName();
         if (!profileName) {
             const choice = await vscode.window.showWarningMessage(
@@ -155,8 +163,8 @@ export class QueryRunner implements vscode.Disposable {
         this.active = { client, queryId, controller };
         const started = Date.now();
         this.showProgress(0, started);
-        this.panel.noteTransport(client.transportName);
-        this.panel.begin(
+        sink.noteTransport(client.transportName);
+        sink.begin(
             {
                 query: target.sql.length > 200 ? `${target.sql.slice(0, 199)}…` : target.sql,
                 profile: profileName,
@@ -177,12 +185,12 @@ export class QueryRunner implements vscode.Disposable {
                 // Columns are known before any row arrives, and the rows are
                 // streamed once. Re-sending them at the end would double the
                 // traffic and throw away what the view had already drawn.
-                onColumns: columns => this.panel.setColumns(columns),
+                onColumns: columns => sink.setColumns(columns),
                 onRows: (rows, total) => {
-                    this.panel.appendRows(rows, total);
+                    sink.appendRows(rows, total);
                     this.showProgress(total, started);
                 },
-                onTrace: note => this.panel.trace(note),
+                onTrace: note => sink.trace(note),
             });
 
             // The summary header is written when headers flush, so for a
@@ -196,7 +204,7 @@ export class QueryRunner implements vscode.Disposable {
             const summaryIsComplete =
                 summary?.readRows === undefined || summary.readRows >= result.rows.length;
 
-            this.panel.end(
+            sink.end(
                 {
                     elapsedMs: result.elapsedMs,
                     readRows: summaryIsComplete ? summary?.readRows : undefined,
@@ -219,10 +227,10 @@ export class QueryRunner implements vscode.Disposable {
                 rows: result.rows.length,
             });
         } catch (error) {
-            if (controller.signal.aborted) this.panel.cancelled();
+            if (controller.signal.aborted) sink.cancelled();
             else {
                 const { message, code } = describe(error);
-                this.panel.fail(message, code);
+                sink.fail(message, code);
             }
             // A failed query is worth keeping: it is usually the one to revisit.
             await this.history?.record({
