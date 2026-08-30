@@ -462,8 +462,11 @@ describe('column widths', () => {
         const before = widthPx(root, 1);
         const resizer = root.querySelectorAll<HTMLElement>('.ch-resizer')[1];
         resizer.dispatchEvent(pointer('pointerdown', 100));
-        resizer.dispatchEvent(pointer('pointermove', 180));
-        resizer.dispatchEvent(pointer('pointerup', 180));
+        // Tracked on the window, not on the handle: a nine-pixel target that
+        // only follows the cursor while it stays inside is not a drag anyone
+        // can complete.
+        window.dispatchEvent(pointer('pointermove', 180));
+        window.dispatchEvent(pointer('pointerup', 180));
 
         expect(widthPx(root, 1)).toBe(before + 80);
         // Header and body must not drift apart.
@@ -481,8 +484,8 @@ describe('column widths', () => {
 
         const resizer = root.querySelectorAll<HTMLElement>('.ch-resizer')[1];
         resizer.dispatchEvent(pointer('pointerdown', 300));
-        resizer.dispatchEvent(pointer('pointermove', -5000));
-        resizer.dispatchEvent(pointer('pointerup', -5000));
+        window.dispatchEvent(pointer('pointermove', -5000));
+        window.dispatchEvent(pointer('pointerup', -5000));
 
         expect(widthPx(root, 1)).toBeGreaterThan(0);
     });
@@ -498,13 +501,81 @@ describe('column widths', () => {
 
         const resizer = root.querySelectorAll<HTMLElement>('.ch-resizer')[0];
         resizer.dispatchEvent(pointer('pointerdown', 100));
-        resizer.dispatchEvent(pointer('pointermove', 140));
-        resizer.dispatchEvent(pointer('pointerup', 140));
+        window.dispatchEvent(pointer('pointermove', 140));
+        window.dispatchEvent(pointer('pointerup', 140));
         root.querySelectorAll<HTMLElement>('.ch-header-cell')[0].dispatchEvent(
             new MouseEvent('click', { bubbles: true })
         );
 
         expect(firstCell()).toBe(before);
+    });
+
+    it('still sorts on the click after a fit', () => {
+        // Suppressing the click that ends a drag must not also swallow the
+        // reader's next genuine one.
+        const { root, send } = mount();
+        start(send);
+        send({ type: 'rows', rows: [['2', 'b'], ['1', 'a']], total: 2 });
+
+        root.querySelectorAll<HTMLElement>('.ch-resizer')[1].dispatchEvent(
+            new MouseEvent('dblclick', { bubbles: true, cancelable: true })
+        );
+        root.querySelectorAll<HTMLElement>('.ch-header-cell')[0].dispatchEvent(
+            new MouseEvent('click', { bubbles: true })
+        );
+        expect(root.querySelector('.ch-body .ch-cell:not(.ch-gutter)')?.textContent).toBe('1');
+    });
+
+    it('does not keep swallowing clicks when a drag produces none', async () => {
+        // The click that ends a drag is what the flag is for. If the browser
+        // never sends one - the pointer left the header, say - the flag has to
+        // clear itself, or the reader's next sort silently does nothing.
+        const { root, send } = mount();
+        start(send);
+        send({ type: 'rows', rows: [['2', 'b'], ['1', 'a']], total: 2 });
+
+        const resizer = root.querySelectorAll<HTMLElement>('.ch-resizer')[0];
+        resizer.dispatchEvent(pointer('pointerdown', 100));
+        window.dispatchEvent(pointer('pointermove', 160));
+        window.dispatchEvent(pointer('pointerup', 160));
+        await new Promise(resolve => setTimeout(resolve, 0));
+
+        root.querySelectorAll<HTMLElement>('.ch-header-cell')[0].dispatchEvent(
+            new MouseEvent('click', { bubbles: true })
+        );
+        expect(root.querySelector('.ch-body .ch-cell:not(.ch-gutter)')?.textContent).toBe('1');
+    });
+
+    it('sorts on the second click after a drag', () => {
+        const { root, send } = mount();
+        start(send);
+        send({ type: 'rows', rows: [['2', 'b'], ['1', 'a']], total: 2 });
+
+        const resizer = root.querySelectorAll<HTMLElement>('.ch-resizer')[0];
+        resizer.dispatchEvent(pointer('pointerdown', 100));
+        window.dispatchEvent(pointer('pointermove', 160));
+        window.dispatchEvent(pointer('pointerup', 160));
+
+        const header = () => root.querySelectorAll<HTMLElement>('.ch-header-cell')[0];
+        header().dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        header().dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        expect(root.querySelector('.ch-body .ch-cell:not(.ch-gutter)')?.textContent).toBe('1');
+    });
+
+    it('shows the sort arrow without changing the column width', () => {
+        // The arrow is drawn over the cell, so no column carries room for one
+        // it does not have - two characters of slack on every column.
+        const { root, send } = mount();
+        start(send);
+        send({ type: 'rows', rows: [['2', 'b'], ['1', 'a']], total: 2 });
+
+        const width = () => root.querySelectorAll<HTMLElement>('.ch-header-cell')[0].style.width;
+        const before = width();
+        root.querySelectorAll<HTMLElement>('.ch-header-cell')[0].dispatchEvent(
+            new MouseEvent('click', { bubbles: true })
+        );
+        expect(root.querySelector('.ch-sort')?.textContent).toBe('▲');
+        expect(width()).toBe(before);
     });
 
     it('still sorts when the header itself is clicked', () => {
@@ -526,8 +597,8 @@ describe('column widths', () => {
 
         const resizer = root.querySelectorAll<HTMLElement>('.ch-resizer')[1];
         resizer.dispatchEvent(pointer('pointerdown', 100));
-        resizer.dispatchEvent(pointer('pointermove', 200));
-        resizer.dispatchEvent(pointer('pointerup', 200));
+        window.dispatchEvent(pointer('pointermove', 200));
+        window.dispatchEvent(pointer('pointerup', 200));
         const chosen = widthPx(root, 1);
 
         send({ type: 'rows', rows: [['2', 'a-much-longer-value-than-before']], total: 2 });
@@ -543,10 +614,10 @@ describe('column widths', () => {
 
         const resizer = root.querySelectorAll<HTMLElement>('.ch-resizer')[1];
         resizer.dispatchEvent(pointer('pointerdown', 100));
-        resizer.dispatchEvent(pointer('pointermove', 140));
+        window.dispatchEvent(pointer('pointermove', 140));
         expect(resizer.isConnected).toBe(true);
-        resizer.dispatchEvent(pointer('pointermove', 200));
-        resizer.dispatchEvent(pointer('pointerup', 200));
+        window.dispatchEvent(pointer('pointermove', 200));
+        window.dispatchEvent(pointer('pointerup', 200));
 
         // Every movement counted, not just the first.
         expect(widthPx(root, 1)).toBe(parseFloat(resizer.parentElement!.style.width));
@@ -559,8 +630,8 @@ describe('column widths', () => {
 
         const drag = root.querySelectorAll<HTMLElement>('.ch-resizer')[1];
         drag.dispatchEvent(pointer('pointerdown', 100));
-        drag.dispatchEvent(pointer('pointermove', 400));
-        drag.dispatchEvent(pointer('pointerup', 400));
+        window.dispatchEvent(pointer('pointermove', 400));
+        window.dispatchEvent(pointer('pointerup', 400));
         const dragged = widthPx(root, 1);
 
         // The header is rebuilt when the drag ends, so re-query it.

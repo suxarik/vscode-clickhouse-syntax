@@ -13,7 +13,16 @@ import {
     formatValue,
     isNumericType,
 } from '../format';
-import { columnWidths, filteredIndices, nextSort, sortedIndices, SortState, visibleWindow } from '../grid';
+import {
+    columnSamples,
+    columnWidths,
+    filteredIndices,
+    MAX_COLUMN_CHARS,
+    nextSort,
+    sortedIndices,
+    SortState,
+    visibleWindow,
+} from '../grid';
 import { ColumnMeta, HostMessage, ResultStatistics, SerializationFormat } from '../protocol';
 import { chartCaption, chartPoints, planChart, renderChart } from './chart';
 import { Transport } from './transport';
@@ -120,32 +129,50 @@ export class GridView {
         this.transport.post({ type: 'ready' });
     }
 
-    /**
-     * Width of one character in the grid's own font.
-     *
-     * Measured from the real rendered font rather than assumed, because the
-     * user's editor font decides it. Measured once; the font does not change
-     * under a rendered result.
-     */
-    private charWidthPx = 0;
+    /** Reused for every measurement, so the DOM is touched once per render. */
+    private probe: HTMLElement | undefined;
 
-    private charWidth(): number {
-        if (this.charWidthPx > 0) return this.charWidthPx;
-        const probe = document.createElement('span');
-        probe.className = 'ch-probe';
-        probe.textContent = '0'.repeat(20);
-        this.root.appendChild(probe);
-        const measured = probe.getBoundingClientRect().width / 20;
-        probe.remove();
-        // A headless or hidden host measures zero; a plausible width keeps the
-        // grid usable rather than collapsing every column.
-        this.charWidthPx = measured > 0 ? measured : FALLBACK_CHAR_PX;
-        return this.charWidthPx;
+    /**
+     * How wide a string renders, in the grid's own font.
+     *
+     * Measured rather than computed from a character count: counting characters
+     * is only right for a monospace font at an assumed size, and is wrong for
+     * the header regardless, because the header is laid out bold.
+     *
+     * Returns 0 where nothing can be measured - a hidden host, or a test
+     * environment with no layout - and the caller falls back to counting.
+     */
+    private textWidth(text: string, bold: boolean): number {
+        if (!this.probe) {
+            this.probe = document.createElement('span');
+            this.probe.className = 'ch-probe';
+            this.root.appendChild(this.probe);
+        }
+        this.probe.style.fontWeight = bold ? '600' : 'normal';
+        this.probe.textContent = text;
+        return this.probe.getBoundingClientRect().width;
     }
 
-    /** Pixels a column of this many characters needs, chrome included. */
-    private pixelsFor(chars: number): number {
-        return Math.round(chars * this.charWidth() + CELL_CHROME_PX);
+    /** Pixels each column needs for the text it holds, chrome included. */
+    private widthsFor(rows: unknown[][], sampleSize?: number): number[] {
+        const samples = columnSamples(this.state.columns, rows, sampleSize);
+        const counted = columnWidths(this.state.columns, rows, sampleSize);
+        // The widest a column may be measured to. Taken from the font in use
+        // rather than assumed, so it means the same on any font.
+        const cap = this.textWidth('M'.repeat(MAX_COLUMN_CHARS), false) || MAX_COLUMN_CHARS * FALLBACK_CHAR_PX;
+
+        return samples.map((sample, index) => {
+            // The header alone. The sort arrow is drawn over the cell rather
+            // than laid out in it, so no column carries room for an arrow it
+            // does not have - which was two characters of slack on every one.
+            const header = this.textWidth(sample.header, true);
+            const widest = sample.widest ? this.textWidth(sample.widest, false) : 0;
+            const measured = Math.max(header, widest);
+            // Nothing measurable - a hidden host, or a test with no layout -
+            // so fall back to counting characters.
+            const px = measured > 0 ? measured : counted[index] * FALLBACK_CHAR_PX;
+            return Math.round(Math.max(MIN_COLUMN_PX, Math.min(px, cap)) + CELL_CHROME_PX);
+        });
     }
 
     /** Measure once there is something to measure, then leave it alone. */
@@ -153,10 +180,10 @@ export class GridView {
         if (this.state.widthsMeasured) return;
         if (this.state.columns.length === 0) return;
 
-        const measured = columnWidths(this.state.columns, this.state.rows);
-        this.state.widths = measured.map((chars, index) =>
+        const measured = this.widthsFor(this.state.rows);
+        this.state.widths = measured.map((px, index) =>
             // A column the reader sized by hand keeps that width.
-            this.state.pinnedWidths.has(index) ? this.state.widths[index] : this.pixelsFor(chars)
+            this.state.pinnedWidths.has(index) ? this.state.widths[index] : px
         );
         // Header-only widths are provisional; wait for rows before fixing them.
         if (this.state.rows.length > 0) this.state.widthsMeasured = true;
@@ -171,9 +198,9 @@ export class GridView {
      * are still arriving.
      */
     private fitColumn(index: number): void {
-        const chars = columnWidths(this.state.columns, this.state.rows, this.state.rows.length)[index];
-        if (chars === undefined) return;
-        this.state.widths[index] = this.pixelsFor(chars);
+        const px = this.widthsFor(this.state.rows, this.state.rows.length)[index];
+        if (px === undefined) return;
+        this.state.widths[index] = Math.max(MIN_COLUMN_PX, px);
         this.state.pinnedWidths.add(index);
         this.renderAll();
     }
@@ -315,11 +342,11 @@ export class GridView {
 
         this.elements.head.addEventListener('click', event => {
             // A drag ends with a click on the header; sorting then would be a
-            // surprise every time someone resized a column.
-            if (this.suppressNextSort) {
-                this.suppressNextSort = false;
-                return;
-            }
+            // surprise every time someone resized a column. Cleared on the
+            // first click either way, so it can never swallow a later one.
+            const afterDrag = this.suppressNextSort;
+            this.suppressNextSort = false;
+            if (afterDrag) return;
             if ((event.target as HTMLElement).dataset.resize !== undefined) return;
             const header = (event.target as HTMLElement).closest<HTMLElement>('[data-column]');
             if (!header) return;
@@ -422,8 +449,9 @@ export class GridView {
             event.preventDefault();
             const startX = event.clientX;
             const startWidth = this.state.widths[index] ?? MIN_COLUMN_PX;
-            target.setPointerCapture?.(event.pointerId);
             target.classList.add('is-dragging');
+            document.body.classList.add('ch-resizing');
+            let dragged = false;
 
             const move = (moved: PointerEvent) => {
                 const next = Math.max(MIN_COLUMN_PX, Math.round(startWidth + (moved.clientX - startX)));
@@ -433,25 +461,36 @@ export class GridView {
                 // Widths are fixed from here: a later batch of rows must not
                 // undo what the reader just did.
                 this.state.widthsMeasured = true;
+                dragged = true;
                 // Restyled in place rather than re-rendered: rebuilding the
-                // header would destroy the element holding the pointer capture,
-                // and the drag would die after its first movement.
+                // header mid-drag would destroy the element the pointer started
+                // on, and the drag would die after its first movement.
                 this.applyWidthsInPlace();
             };
 
             const end = () => {
                 target.classList.remove('is-dragging');
-                target.releasePointerCapture?.(event.pointerId);
-                target.removeEventListener('pointermove', move);
-                target.removeEventListener('pointerup', end);
-                target.removeEventListener('pointercancel', end);
-                this.suppressNextSort = true;
+                document.body.classList.remove('ch-resizing');
+                window.removeEventListener('pointermove', move);
+                window.removeEventListener('pointerup', end);
+                window.removeEventListener('pointercancel', end);
+                // Only a drag that moved something has a click to swallow, and
+                // the browser dispatches that click in the same task as the
+                // pointerup - so a timer set here clears the flag right after
+                // it, and a drag that produces no click cannot swallow some
+                // later, genuine one.
+                this.suppressNextSort = dragged;
+                if (dragged) setTimeout(() => (this.suppressNextSort = false), 0);
                 this.renderAll();
             };
 
-            target.addEventListener('pointermove', move);
-            target.addEventListener('pointerup', end);
-            target.addEventListener('pointercancel', end);
+            // On the window rather than on the handle. Pointer capture would
+            // also work, but only if the host grants it - and a seven pixel
+            // target that only tracks while the cursor stays inside it is not a
+            // drag anyone can complete.
+            window.addEventListener('pointermove', move);
+            window.addEventListener('pointerup', end);
+            window.addEventListener('pointercancel', end);
         });
 
         this.elements.head.addEventListener('dblclick', event => {
@@ -459,7 +498,8 @@ export class GridView {
             if (target.dataset.resize === undefined) return;
             event.preventDefault();
             event.stopPropagation();
-            this.suppressNextSort = true;
+            // No flag: a click on the handle is already ignored below, and
+            // setting one here would swallow the reader's next sort instead.
             this.fitColumn(Number(target.dataset.resize));
         });
     }
@@ -487,10 +527,17 @@ export class GridView {
             cell.dataset.column = String(index);
             if (isNumericType(column.type)) cell.classList.add('is-numeric');
 
-            const arrow =
-                this.state.sort?.column === index ? (this.state.sort.direction === 'asc' ? ' ▲' : ' ▼') : '';
-            cell.textContent = `${column.name}${arrow}`;
+            cell.textContent = column.name;
             cell.title = `${column.name} — ${column.type}`;
+
+            // Drawn over the cell rather than appended to its text, so sorting
+            // a column does not change how wide it is.
+            if (this.state.sort?.column === index) {
+                const arrow = document.createElement('span');
+                arrow.className = 'ch-sort';
+                arrow.textContent = this.state.sort.direction === 'asc' ? '▲' : '▼';
+                cell.appendChild(arrow);
+            }
             this.applyWidth(cell, index);
 
             // Sits on the boundary, so the whole header stays clickable for

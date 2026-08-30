@@ -2,7 +2,7 @@
   "name": "clickhouse-syntax",
   "displayName": "ClickHouse SQL Syntax",
   "description": "ClickHouse SQL for VS Code: a real parser and scope binder, a catalog generated from ClickHouse itself, and a connection that lets you run, explain and profile queries in place.",
-  "version": "2.2.2",
+  "version": "2.2.3",
   "publisher": "SuXarikisme",
   "icon": "images/clickhouse.png",
   "engines": {

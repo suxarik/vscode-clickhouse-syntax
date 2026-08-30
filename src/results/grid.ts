@@ -145,6 +145,38 @@ export const MAX_COLUMN_CHARS = 60;
  * does. Only a sample of rows is measured, so a long result does not cost a
  * full scan, and the widths stay put while more rows stream in.
  */
+export interface ColumnSample {
+    /** Header text, which is laid out bold and so measures wider. */
+    header: string;
+    /** The widest value found in the sample, as it will be rendered. */
+    widest: string;
+}
+
+/**
+ * The strings a column has to fit.
+ *
+ * Returned as text rather than as a character count so the view can measure
+ * them in the font actually being used. Counting characters and multiplying by
+ * an assumed character width is only right for a monospace font at a known
+ * size, and gets the header wrong regardless, because the header is bold.
+ */
+export function columnSamples(
+    columns: ColumnMeta[],
+    rows: unknown[][],
+    sampleSize = 200
+): ColumnSample[] {
+    const sampled = Math.min(rows.length, sampleSize);
+
+    return columns.map((column, index) => {
+        let widest = '';
+        for (let row = 0; row < sampled; row++) {
+            const text = formatValue(rows[row][index], column.type, { maxLength: MAX_COLUMN_CHARS + 1 });
+            if (text.length > widest.length) widest = text;
+        }
+        return { header: column.name, widest };
+    });
+}
+
 export function columnWidths(
     columns: ColumnMeta[],
     rows: unknown[][],

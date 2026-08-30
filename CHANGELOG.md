@@ -2,6 +2,29 @@
 
 All notable changes to the ClickHouse SQL Syntax extension will be documented in this file.
 
+## [2.2.3] - 2026-08-30
+
+Column sizing, verified by rendering the real grid bundle in a real browser rather than
+reasoning about it. 2.2.2 fixed the padding but left two faults behind.
+
+### Fixed
+
+- **Resizing did not work.** The handle sat half outside a cell that clips its overflow, so
+  most of it was neither visible nor clickable, and pointer movement was tracked on the
+  handle itself — a seven-pixel target the cursor leaves on the first movement. The handle
+  is now nine pixels wide and wholly inside the cell, and movement is tracked on the window.
+- **Every column carried two characters of slack** it did not need: the width included room
+  for a sort arrow whether or not the column was sorted. The arrow is now drawn over the
+  cell, so sorting a column no longer changes how wide it is either.
+- **Widths came from a character count times an assumed character width.** That is only
+  right for a monospace font at a known size, and wrong for the header regardless, since
+  the header is bold. Widths are now measured from the strings actually being rendered, in
+  the font actually in use. On the demo's own columns nothing is clipped and nothing has
+  slack.
+- The click that ends a drag is suppressed so it does not also sort — but the flag could
+  outlive the drag and swallow a later, genuine click. It now clears itself on the next
+  turn of the event loop.
+
 ## [2.2.2] - 2026-08-30
 
 ### Fixed

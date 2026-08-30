@@ -61,19 +61,35 @@ body {
 }
 .ch-header-cell { cursor: pointer; user-select: none; position: relative; }
 .ch-header-cell:hover { background: var(--vscode-list-hoverBackground); }
-/* On the boundary, so the rest of the header still sorts. */
+/* Over the cell, so sorting a column does not change how wide it is. */
+.ch-sort {
+  position: absolute; top: 0; right: 10px; height: 100%;
+  display: flex; align-items: center; font-size: 9px; opacity: .8;
+  background: inherit; padding-left: 4px; pointer-events: none;
+}
+/*
+ * Inside the cell's own box, because the cell clips its overflow - a handle
+ * straddling the border is half invisible and half unclickable.
+ */
 .ch-resizer {
-  position: absolute; top: 0; right: -3px; width: 7px; height: 100%;
+  position: absolute; top: 0; right: 0; width: 9px; height: 100%;
   cursor: col-resize; z-index: 2; touch-action: none;
 }
-.ch-resizer:hover, .ch-resizer.is-dragging {
+.ch-resizer::after {
+  content: ''; position: absolute; top: 0; right: 3px; width: 3px; height: 100%;
+}
+.ch-resizer:hover::after, .ch-resizer.is-dragging::after {
   background: var(--vscode-focusBorder, var(--vscode-textLink-foreground));
 }
-/* Measures one character of the grid's own font; never visible. */
+/* Keeps the resize cursor while the pointer wanders off the handle. */
+body.ch-resizing, body.ch-resizing * { cursor: col-resize !important; user-select: none; }
+/*
+ * Measures a string in the grid's own font; never visible. Inherits from the
+ * row rather than declaring a font, so what is measured is what is rendered.
+ */
 .ch-probe {
-  position: absolute; visibility: hidden; white-space: pre; pointer-events: none;
-  font-family: var(--vscode-editor-font-family, monospace);
-  font-size: var(--vscode-editor-font-size, 12px);
+  position: absolute; top: -9999px; left: 0; visibility: hidden;
+  white-space: pre; pointer-events: none;
 }
 .ch-gutter {
   min-width: 48px; text-align: right; opacity: .5;
