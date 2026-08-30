@@ -21,10 +21,32 @@ import { Transport } from './transport';
 const ROW_HEIGHT = 22;
 const MAX_CELL_CHARS = 200;
 
+/**
+ * Horizontal padding and border of a cell, in pixels.
+ *
+ * `box-sizing: border-box` means these come out of the content box, so a column
+ * sized purely by its character count is this much too narrow for what it holds
+ * - which is why every column used to truncate a couple of characters early.
+ */
+const CELL_CHROME_PX = 8 + 8 + 1;
+
+/** Narrowest a column may be dragged, in pixels. */
+const MIN_COLUMN_PX = 40;
+
+/** Used when the font cannot be measured, as in a test environment. */
+const FALLBACK_CHAR_PX = 7.2;
+
 interface State {
     columns: ColumnMeta[];
-    /** Shared width per column, in characters. */
+    /**
+     * Shared width per column, in pixels.
+     *
+     * Pixels rather than characters because the padding and border are in
+     * pixels too, and because a drag is a pixel measurement.
+     */
     widths: number[];
+    /** Columns the reader has sized by hand; never re-measured. */
+    pinnedWidths: Set<number>;
     /** Widths are measured once, so columns do not jump as rows stream in. */
     widthsMeasured: boolean;
     rows: unknown[][];
@@ -45,6 +67,7 @@ export class GridView {
     private state: State = {
         columns: [],
         widths: [],
+        pinnedWidths: new Set(),
         widthsMeasured: false,
         rows: [],
         order: [],
@@ -97,24 +120,90 @@ export class GridView {
         this.transport.post({ type: 'ready' });
     }
 
+    /**
+     * Width of one character in the grid's own font.
+     *
+     * Measured from the real rendered font rather than assumed, because the
+     * user's editor font decides it. Measured once; the font does not change
+     * under a rendered result.
+     */
+    private charWidthPx = 0;
+
+    private charWidth(): number {
+        if (this.charWidthPx > 0) return this.charWidthPx;
+        const probe = document.createElement('span');
+        probe.className = 'ch-probe';
+        probe.textContent = '0'.repeat(20);
+        this.root.appendChild(probe);
+        const measured = probe.getBoundingClientRect().width / 20;
+        probe.remove();
+        // A headless or hidden host measures zero; a plausible width keeps the
+        // grid usable rather than collapsing every column.
+        this.charWidthPx = measured > 0 ? measured : FALLBACK_CHAR_PX;
+        return this.charWidthPx;
+    }
+
+    /** Pixels a column of this many characters needs, chrome included. */
+    private pixelsFor(chars: number): number {
+        return Math.round(chars * this.charWidth() + CELL_CHROME_PX);
+    }
+
     /** Measure once there is something to measure, then leave it alone. */
     private measureColumns(): void {
         if (this.state.widthsMeasured) return;
         if (this.state.columns.length === 0) return;
 
-        this.state.widths = columnWidths(this.state.columns, this.state.rows);
+        const measured = columnWidths(this.state.columns, this.state.rows);
+        this.state.widths = measured.map((chars, index) =>
+            // A column the reader sized by hand keeps that width.
+            this.state.pinnedWidths.has(index) ? this.state.widths[index] : this.pixelsFor(chars)
+        );
         // Header-only widths are provisional; wait for rows before fixing them.
         if (this.state.rows.length > 0) this.state.widthsMeasured = true;
         this.headSignature = '';
     }
 
-    private applyWidth(cell: HTMLElement, index: number): void {
-        const chars = this.state.widths[index];
+    /**
+     * Size a column to the widest value actually loaded.
+     *
+     * Unlike the initial measurement this reads every row rather than a sample,
+     * because it is a deliberate request rather than something done while rows
+     * are still arriving.
+     */
+    private fitColumn(index: number): void {
+        const chars = columnWidths(this.state.columns, this.state.rows, this.state.rows.length)[index];
         if (chars === undefined) return;
-        // `ch` matches the grid's monospace font exactly, so header and body
-        // land on the same boundaries.
-        cell.style.flex = `0 0 ${chars}ch`;
-        cell.style.width = `${chars}ch`;
+        this.state.widths[index] = this.pixelsFor(chars);
+        this.state.pinnedWidths.add(index);
+        this.renderAll();
+    }
+
+    /**
+     * Push the current widths onto the cells that are already rendered.
+     *
+     * Used while dragging, where re-creating the header would remove the
+     * element the pointer is captured on.
+     */
+    private applyWidthsInPlace(): void {
+        for (const cell of this.elements.head.querySelectorAll<HTMLElement>('.ch-header-cell')) {
+            this.applyWidth(cell, Number(cell.dataset.column));
+        }
+        for (const row of this.elements.body.querySelectorAll<HTMLElement>('.ch-row')) {
+            const cells = row.querySelectorAll<HTMLElement>('.ch-cell:not(.ch-gutter)');
+            cells.forEach((cell, index) => this.applyWidth(cell, index));
+        }
+        // The cached header no longer matches the state it was built from.
+        this.headSignature = '';
+    }
+
+    private applyWidth(cell: HTMLElement, index: number): void {
+        const px = this.state.widths[index];
+        if (px === undefined) return;
+        // Header and body cells are given the same number, so they cannot drift
+        // apart and the header scrolls exactly as far as the body does.
+        cell.style.flex = `0 0 ${px}px`;
+        cell.style.width = `${px}px`;
+        cell.style.minWidth = `${px}px`;
         cell.style.maxWidth = 'none';
     }
 
@@ -132,6 +221,7 @@ export class GridView {
                 this.state = {
                     columns: [],
                     widths: [],
+                    pinnedWidths: new Set(),
                     widthsMeasured: false,
                     rows: [],
                     order: [],
@@ -221,7 +311,16 @@ export class GridView {
             }
         });
 
+        this.bindResizing();
+
         this.elements.head.addEventListener('click', event => {
+            // A drag ends with a click on the header; sorting then would be a
+            // surprise every time someone resized a column.
+            if (this.suppressNextSort) {
+                this.suppressNextSort = false;
+                return;
+            }
+            if ((event.target as HTMLElement).dataset.resize !== undefined) return;
             const header = (event.target as HTMLElement).closest<HTMLElement>('[data-column]');
             if (!header) return;
             this.state.sort = nextSort(this.state.sort, Number(header.dataset.column));
@@ -305,6 +404,66 @@ export class GridView {
         }
     }
 
+    /** Set while a resize drag is finishing, so it does not also sort. */
+    private suppressNextSort = false;
+
+    /**
+     * Drag a header edge to resize, double-click it to fit the contents.
+     *
+     * Pointer events with capture rather than mouse events on the document, so
+     * a drag that leaves the window still ends properly.
+     */
+    private bindResizing(): void {
+        this.elements.head.addEventListener('pointerdown', event => {
+            const target = event.target as HTMLElement;
+            const index = Number(target.dataset.resize);
+            if (target.dataset.resize === undefined || Number.isNaN(index)) return;
+
+            event.preventDefault();
+            const startX = event.clientX;
+            const startWidth = this.state.widths[index] ?? MIN_COLUMN_PX;
+            target.setPointerCapture?.(event.pointerId);
+            target.classList.add('is-dragging');
+
+            const move = (moved: PointerEvent) => {
+                const next = Math.max(MIN_COLUMN_PX, Math.round(startWidth + (moved.clientX - startX)));
+                if (next === this.state.widths[index]) return;
+                this.state.widths[index] = next;
+                this.state.pinnedWidths.add(index);
+                // Widths are fixed from here: a later batch of rows must not
+                // undo what the reader just did.
+                this.state.widthsMeasured = true;
+                // Restyled in place rather than re-rendered: rebuilding the
+                // header would destroy the element holding the pointer capture,
+                // and the drag would die after its first movement.
+                this.applyWidthsInPlace();
+            };
+
+            const end = () => {
+                target.classList.remove('is-dragging');
+                target.releasePointerCapture?.(event.pointerId);
+                target.removeEventListener('pointermove', move);
+                target.removeEventListener('pointerup', end);
+                target.removeEventListener('pointercancel', end);
+                this.suppressNextSort = true;
+                this.renderAll();
+            };
+
+            target.addEventListener('pointermove', move);
+            target.addEventListener('pointerup', end);
+            target.addEventListener('pointercancel', end);
+        });
+
+        this.elements.head.addEventListener('dblclick', event => {
+            const target = event.target as HTMLElement;
+            if (target.dataset.resize === undefined) return;
+            event.preventDefault();
+            event.stopPropagation();
+            this.suppressNextSort = true;
+            this.fitColumn(Number(target.dataset.resize));
+        });
+    }
+
     private headSignature = '';
 
     private renderHead(): void {
@@ -333,6 +492,15 @@ export class GridView {
             cell.textContent = `${column.name}${arrow}`;
             cell.title = `${column.name} — ${column.type}`;
             this.applyWidth(cell, index);
+
+            // Sits on the boundary, so the whole header stays clickable for
+            // sorting and only the edge resizes.
+            const resizer = document.createElement('div');
+            resizer.className = 'ch-resizer';
+            resizer.dataset.resize = String(index);
+            resizer.title = 'Drag to resize · double-click to fit the contents';
+            cell.appendChild(resizer);
+
             row.appendChild(cell);
         });
 

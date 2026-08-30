@@ -2,6 +2,25 @@
 
 All notable changes to the ClickHouse SQL Syntax extension will be documented in this file.
 
+## [2.2.2] - 2026-08-30
+
+### Fixed
+
+- **Result columns were about two characters too narrow**, so values were truncated that
+  had room to fit — `2024-01-01` rendered as `2024-01-0…`. Columns were sized in `ch`
+  units, but `box-sizing: border-box` takes the 8px padding either side and the 1px border
+  out of that same box. Widths are now in pixels, measured from the grid's own rendered
+  font, with the chrome added on top. On the demo's own columns that is 9.6 characters of
+  room where 12 were needed.
+
+### Added
+
+- **Columns can be resized.** Drag a header edge, or double-click it to fit the column to
+  its contents — which reads every loaded row, not just the 200-row sample the first
+  measurement takes. A width you set by hand is never re-measured, so a later batch of
+  streaming rows cannot undo it, and the click that ends a drag no longer sorts the column
+  underneath it.
+
 ## [2.2.1] - 2026-08-30
 
 ### Fixed

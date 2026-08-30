@@ -59,8 +59,22 @@ body {
   overflow: hidden; text-overflow: ellipsis; line-height: 18px;
   border-right: 1px solid var(--ch-border);
 }
-.ch-header-cell { cursor: pointer; user-select: none; }
+.ch-header-cell { cursor: pointer; user-select: none; position: relative; }
 .ch-header-cell:hover { background: var(--vscode-list-hoverBackground); }
+/* On the boundary, so the rest of the header still sorts. */
+.ch-resizer {
+  position: absolute; top: 0; right: -3px; width: 7px; height: 100%;
+  cursor: col-resize; z-index: 2; touch-action: none;
+}
+.ch-resizer:hover, .ch-resizer.is-dragging {
+  background: var(--vscode-focusBorder, var(--vscode-textLink-foreground));
+}
+/* Measures one character of the grid's own font; never visible. */
+.ch-probe {
+  position: absolute; visibility: hidden; white-space: pre; pointer-events: none;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: var(--vscode-editor-font-size, 12px);
+}
 .ch-gutter {
   min-width: 48px; text-align: right; opacity: .5;
   position: sticky; left: 0; background: var(--vscode-editor-background);

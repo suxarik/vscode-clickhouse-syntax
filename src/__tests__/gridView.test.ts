@@ -396,7 +396,10 @@ describe('column alignment', () => {
         const head = widthsOf(root, '.ch-head .ch-row');
         const body = widthsOf(root, '.ch-body .ch-row');
         expect(head).toEqual(body);
-        expect(head.every(width => width.endsWith('ch'))).toBe(true);
+        // Pixels, because the padding and border that come out of the content
+        // box are in pixels too - sizing in `ch` left every column a couple of
+        // characters short of what it holds.
+        expect(head.every(width => width.endsWith('px'))).toBe(true);
     });
 
     it('does not resize columns as more rows stream in', () => {
@@ -416,5 +419,169 @@ describe('column alignment', () => {
         (root.querySelector('.ch-head [data-column="0"]') as HTMLElement).click();
 
         expect(widthsOf(root, '.ch-head .ch-row')).toEqual(widthsOf(root, '.ch-body .ch-row'));
+    });
+});
+
+describe('column widths', () => {
+    /** A pointer event jsdom can dispatch, with the fields the view reads. */
+    function pointer(type: string, clientX: number): Event {
+        const event = new Event(type, { bubbles: true, cancelable: true });
+        Object.assign(event, { clientX, pointerId: 1 });
+        return event;
+    }
+
+    const widthPx = (root: HTMLElement, index: number) =>
+        parseFloat(
+            (root.querySelectorAll<HTMLElement>('.ch-head .ch-header-cell')[index] as HTMLElement).style.width
+        );
+
+    it('leaves room for the padding and border, not just the characters', () => {
+        // `box-sizing: border-box` takes the 8px padding either side and the
+        // 1px border out of the content box, so a column sized purely by its
+        // character count truncates a couple of characters early.
+        const { root, send } = mount();
+        start(send);
+        send({ type: 'rows', rows: [['1', 'abcdefghij']], total: 1 });
+
+        // Ten characters of content, plus the chrome.
+        expect(widthPx(root, 1)).toBeGreaterThan(10 * 7);
+    });
+
+    it('offers a resize handle on every column', () => {
+        const { root, send } = mount();
+        start(send);
+        send({ type: 'rows', rows: [['1', 'a']], total: 1 });
+        expect(root.querySelectorAll('.ch-resizer')).toHaveLength(COLUMNS.length);
+    });
+
+    it('widens a column as it is dragged, and keeps the body in step', () => {
+        const { root, send } = mount();
+        start(send);
+        send({ type: 'rows', rows: [['1', 'a']], total: 1 });
+
+        const before = widthPx(root, 1);
+        const resizer = root.querySelectorAll<HTMLElement>('.ch-resizer')[1];
+        resizer.dispatchEvent(pointer('pointerdown', 100));
+        resizer.dispatchEvent(pointer('pointermove', 180));
+        resizer.dispatchEvent(pointer('pointerup', 180));
+
+        expect(widthPx(root, 1)).toBe(before + 80);
+        // Header and body must not drift apart.
+        const head = [...root.querySelectorAll<HTMLElement>('.ch-head .ch-header-cell')].map(c => c.style.width);
+        const body = [...root.querySelectorAll<HTMLElement>('.ch-body .ch-row:first-child .ch-cell')]
+            .slice(1)
+            .map(c => c.style.width);
+        expect(body).toEqual(head);
+    });
+
+    it('will not let a column be dragged away to nothing', () => {
+        const { root, send } = mount();
+        start(send);
+        send({ type: 'rows', rows: [['1', 'a']], total: 1 });
+
+        const resizer = root.querySelectorAll<HTMLElement>('.ch-resizer')[1];
+        resizer.dispatchEvent(pointer('pointerdown', 300));
+        resizer.dispatchEvent(pointer('pointermove', -5000));
+        resizer.dispatchEvent(pointer('pointerup', -5000));
+
+        expect(widthPx(root, 1)).toBeGreaterThan(0);
+    });
+
+    it('does not sort the column the drag ended on', () => {
+        // A drag ends with a click on the header; sorting then would be a
+        // surprise every single time someone resized something.
+        const { root, send } = mount();
+        start(send);
+        send({ type: 'rows', rows: [['2', 'b'], ['1', 'a']], total: 2 });
+        const firstCell = () => root.querySelector('.ch-body .ch-cell:not(.ch-gutter)')?.textContent;
+        const before = firstCell();
+
+        const resizer = root.querySelectorAll<HTMLElement>('.ch-resizer')[0];
+        resizer.dispatchEvent(pointer('pointerdown', 100));
+        resizer.dispatchEvent(pointer('pointermove', 140));
+        resizer.dispatchEvent(pointer('pointerup', 140));
+        root.querySelectorAll<HTMLElement>('.ch-header-cell')[0].dispatchEvent(
+            new MouseEvent('click', { bubbles: true })
+        );
+
+        expect(firstCell()).toBe(before);
+    });
+
+    it('still sorts when the header itself is clicked', () => {
+        const { root, send } = mount();
+        start(send);
+        send({ type: 'rows', rows: [['2', 'b'], ['1', 'a']], total: 2 });
+
+        root.querySelectorAll<HTMLElement>('.ch-header-cell')[0].dispatchEvent(
+            new MouseEvent('click', { bubbles: true })
+        );
+        expect(root.querySelector('.ch-body .ch-cell:not(.ch-gutter)')?.textContent).toBe('1');
+    });
+
+    it('keeps a hand-set width when more rows arrive', () => {
+        // Re-measuring would undo what the reader just did.
+        const { root, send } = mount();
+        start(send);
+        send({ type: 'rows', rows: [['1', 'a']], total: 1 });
+
+        const resizer = root.querySelectorAll<HTMLElement>('.ch-resizer')[1];
+        resizer.dispatchEvent(pointer('pointerdown', 100));
+        resizer.dispatchEvent(pointer('pointermove', 200));
+        resizer.dispatchEvent(pointer('pointerup', 200));
+        const chosen = widthPx(root, 1);
+
+        send({ type: 'rows', rows: [['2', 'a-much-longer-value-than-before']], total: 2 });
+        expect(widthPx(root, 1)).toBe(chosen);
+    });
+
+    it('keeps the dragged element alive for the whole drag', () => {
+        // Re-rendering the header mid-drag would remove the element the pointer
+        // is captured on, and the drag would die after its first movement.
+        const { root, send } = mount();
+        start(send);
+        send({ type: 'rows', rows: [['1', 'a']], total: 1 });
+
+        const resizer = root.querySelectorAll<HTMLElement>('.ch-resizer')[1];
+        resizer.dispatchEvent(pointer('pointerdown', 100));
+        resizer.dispatchEvent(pointer('pointermove', 140));
+        expect(resizer.isConnected).toBe(true);
+        resizer.dispatchEvent(pointer('pointermove', 200));
+        resizer.dispatchEvent(pointer('pointerup', 200));
+
+        // Every movement counted, not just the first.
+        expect(widthPx(root, 1)).toBe(parseFloat(resizer.parentElement!.style.width));
+    });
+
+    it('fits a column to its contents on a double-click', () => {
+        const { root, send } = mount();
+        start(send);
+        send({ type: 'rows', rows: [['1', 'a']], total: 1 });
+
+        const drag = root.querySelectorAll<HTMLElement>('.ch-resizer')[1];
+        drag.dispatchEvent(pointer('pointerdown', 100));
+        drag.dispatchEvent(pointer('pointermove', 400));
+        drag.dispatchEvent(pointer('pointerup', 400));
+        const dragged = widthPx(root, 1);
+
+        // The header is rebuilt when the drag ends, so re-query it.
+        root.querySelectorAll<HTMLElement>('.ch-resizer')[1].dispatchEvent(
+            new MouseEvent('dblclick', { bubbles: true, cancelable: true })
+        );
+        expect(widthPx(root, 1)).toBeLessThan(dragged);
+    });
+
+    it('fits to every loaded row, not just the sample the first measure took', () => {
+        const { root, send } = mount();
+        start(send);
+        // The initial measurement samples 200 rows; the wide value is past that.
+        const rows: unknown[][] = Array.from({ length: 300 }, (_, i) => [String(i), 'short']);
+        rows[250] = ['250', 'a-value-far-wider-than-any-of-the-others'];
+        send({ type: 'rows', rows, total: rows.length });
+
+        const sampled = widthPx(root, 1);
+        root.querySelectorAll<HTMLElement>('.ch-resizer')[1].dispatchEvent(
+            new MouseEvent('dblclick', { bubbles: true, cancelable: true })
+        );
+        expect(widthPx(root, 1)).toBeGreaterThan(sampled);
     });
 });
