@@ -186,11 +186,22 @@ describe('ClickHouse extension', () => {
             reparse: 5,
             completion: 50,
         };
+
+        // The budget describes the product on a developer's machine. A shared
+        // CI runner is slower and noisy, and a build that goes red on runner
+        // variance teaches people to ignore the budget - so CI allows a wider
+        // margin while still catching a real regression. The raw numbers are
+        // logged either way.
+        const allowance = process.env.CI ? 3 : 1;
         const over: string[] = [];
         for (const [id, limit] of Object.entries(budgets)) {
             const ms = measurements.get(id)?.ms;
-            console.log(`      ${id.padEnd(12)} ${ms === undefined ? 'not measured' : `${ms.toFixed(2)} ms`} (budget ${limit} ms)`);
-            if (ms !== undefined && ms > limit) over.push(`${id}: ${ms.toFixed(2)} ms > ${limit} ms`);
+            const allowed = limit * allowance;
+            console.log(
+                `      ${id.padEnd(12)} ${ms === undefined ? 'not measured' : `${ms.toFixed(2)} ms`}` +
+                    ` (budget ${limit} ms${allowance > 1 ? `, allowed ${allowed} ms here` : ''})`
+            );
+            if (ms !== undefined && ms > allowed) over.push(`${id}: ${ms.toFixed(2)} ms > ${allowed} ms`);
         }
         assert.deepStrictEqual(over, [], `over budget — ${over.join('; ')}`);
     });

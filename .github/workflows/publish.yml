@@ -130,7 +130,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.ver.outputs.value }}
-          name: ClickHouse SQL Syntax v${{ steps.ver.outputs.value }}
+          name: ClickHouse SQL — IDE & Runbooks v${{ steps.ver.outputs.value }}
           body: |
             ${{ steps.notes.outputs.body }}
 

@@ -1,8 +1,13 @@
 # Changelog
 
-All notable changes to the ClickHouse SQL Syntax extension will be documented in this file.
+All notable changes to this extension will be documented in this file.
 
 ## [2.3.0] - 2026-08-30
+
+**The first Marketplace release since 1.5.0.** Everything in 2.0, 2.1 and 2.2 below ships
+with it: connections and query execution, the result grid, notebooks and runbooks, dbt
+awareness, and schema migrations. If you are upgrading from 1.x, start at
+[2.0.0](#200---2026-08-28) — that is where the extension stopped being a language plugin.
 
 The extension outgrew its name. It has not been a syntax highlighter since 2.0.
 
