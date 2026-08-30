@@ -610,9 +610,19 @@ export function resolveName(scope: Scope | undefined, name: string, qualifier?: 
         if (current.arrayJoinAliases.has(lower)) return { kind: 'arrayJoin' };
     }
 
-    const tables = visibleTables(scope);
-    const holding = tables.filter(table => table.columns?.some(column => column.toLowerCase() === lower));
-    if (holding.length > 0) return { kind: 'column', tables: holding };
+    // Innermost first, one level at a time. A bare name in a subquery resolves
+    // against that subquery's own tables and only falls outwards if none of
+    // them has it - so `(SELECT max(d) FROM t)` inside a query that also reads
+    // `t` is not ambiguous, it is ordinary scoping. Ambiguity is two tables at
+    // the *same* level, which is the case a qualifier would actually fix.
+    const chain = resolutionChain(scope);
+    for (const level of chain) {
+        const holding = level.tables.filter(table =>
+            table.columns?.some(column => column.toLowerCase() === lower)
+        );
+        if (holding.length > 0) return { kind: 'column', tables: holding };
+    }
+    const tables = chain.flatMap(level => level.tables);
 
     for (const current of resolutionChain(scope)) {
         if (current.aliases.has(lower)) return { kind: 'alias' };

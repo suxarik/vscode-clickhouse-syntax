@@ -299,3 +299,69 @@ describe('DDL binding', () => {
         expect(resolveName(result.scopes[0], 'event_id')).toMatchObject({ kind: 'column' });
     });
 });
+
+describe('a bare name resolves innermost first', () => {
+    /**
+     * Found by running the extension against a real notebook: a scalar subquery
+     * reading the same table as the outer query was reported as ambiguous, on a
+     * statement ClickHouse accepts without complaint. Ambiguity is two tables at
+     * the *same* level - the case a qualifier would actually fix.
+     */
+    const columnSource: ColumnSource = {
+        columnsOf: table => (table === 'events' ? ['event_date', 'event_id'] : ['event_date']),
+    };
+
+    /** Every unqualified column reference that resolves to more than one table. */
+    function ambiguous(sql: string): string[] {
+        const binding = bind(parse(sql).program, columnSource);
+        const found: string[] = [];
+        for (const reference of binding.references) {
+            if (reference.kind !== 'column' || reference.qualifier) continue;
+            const resolution = resolveName(reference.scope, reference.name);
+            if (resolution.kind === 'column' && resolution.tables.length >= 2) found.push(reference.name);
+        }
+        return found;
+    }
+
+    it('does not call a scalar subquery over the same table ambiguous', () => {
+        expect(
+            ambiguous('SELECT event_date FROM events WHERE event_date > (SELECT max(event_date) FROM events)')
+        ).toEqual([]);
+    });
+
+    it('does not call an IN subquery ambiguous', () => {
+        expect(ambiguous('SELECT event_id FROM events WHERE event_id IN (SELECT event_id FROM events)')).toEqual(
+            []
+        );
+    });
+
+    it('prefers the subquery\'s own table over the enclosing one', () => {
+        const binding = bind(
+            parse('SELECT event_date FROM events WHERE event_date > (SELECT max(event_date) FROM other)').program,
+            columnSource
+        );
+        // The reference inside the subquery is the last one.
+        const inner = binding.references.filter(reference => reference.kind === 'column').at(-1)!;
+        const resolution = resolveName(inner.scope, inner.name);
+        expect(resolution.kind).toBe('column');
+        expect(resolution.kind === 'column' && resolution.tables.map(table => table.label)).toEqual(['other']);
+    });
+
+    it('still falls outwards for a column only the outer query has', () => {
+        // A correlated subquery may legitimately reference the outer table.
+        const binding = bind(
+            parse('SELECT event_id FROM events WHERE event_id IN (SELECT event_date FROM other WHERE event_id > 1)')
+                .program,
+            columnSource
+        );
+        const inner = binding.references.filter(reference => reference.kind === 'column').at(-1)!;
+        const resolution = resolveName(inner.scope, inner.name);
+        expect(resolution.kind === 'column' && resolution.tables.map(table => table.label)).toEqual(['events']);
+    });
+
+    it('still reports two tables joined at the same level', () => {
+        expect(ambiguous('SELECT event_date FROM events AS a JOIN other AS b ON a.event_id = b.event_date')).toEqual(
+            ['event_date']
+        );
+    });
+});

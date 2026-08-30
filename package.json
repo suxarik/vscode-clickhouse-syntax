@@ -1046,6 +1046,7 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "bundle": "node esbuild.js",
+    "watch:bundle": "node esbuild.js --watch",
     "package:bundle": "node esbuild.js --production",
     "package": "vsce package",
     "lint": "eslint src --max-warnings 0",

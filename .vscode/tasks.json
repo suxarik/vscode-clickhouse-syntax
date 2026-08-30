@@ -1,0 +1,21 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "type": "npm",
+      "script": "bundle",
+      "group": "build",
+      "problemMatcher": "$esbuild",
+      "label": "npm: bundle",
+      "detail": "Build dist/ before launching the extension host."
+    },
+    {
+      "type": "npm",
+      "script": "watch:bundle",
+      "group": "build",
+      "isBackground": true,
+      "problemMatcher": "$esbuild-watch",
+      "label": "npm: watch:bundle"
+    }
+  ]
+}
