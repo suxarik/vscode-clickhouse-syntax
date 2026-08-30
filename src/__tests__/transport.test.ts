@@ -337,7 +337,68 @@ describe('transport fallback', () => {
         ).rejects.toThrow(/No usable HTTP transport.*a:.*b:/s);
     });
 
+    /** A transport that records the deadline it was handed, then fails. */
+    function recording(name: string, into: Array<number | undefined>): HttpSender {
+        return {
+            name,
+            send: async request => {
+                into.push(request.timeoutMs);
+                throw new Error(`${name} never answered`);
+            },
+        };
+    }
+
     it('splits the deadline so one hang cannot use it all', async () => {
+        // Asserted on the budget each candidate is handed rather than on the
+        // clock. The previous version measured elapsed time against a bound
+        // barely above the sum of the parts, and failed on a slower CI runner -
+        // a race in the test, not in the code.
+        const given: Array<number | undefined> = [];
+        await expect(
+            createFallbackSender([
+                recording('a', given),
+                recording('b', given),
+                recording('c', given),
+            ]).send({ url: base, method: 'POST', headers: {}, body: '', timeoutMs: 9000 })
+        ).rejects.toThrow(/No usable HTTP transport/);
+
+        // Nine seconds across three candidates is three seconds each, not nine.
+        expect(given).toEqual([3000, 3000, 3000]);
+    });
+
+    it('still gives a candidate a workable minimum when the budget is tight', async () => {
+        // A tenth of a second each is not a connection attempt, it is a
+        // guaranteed failure. Every candidate gets a floor.
+        const given: Array<number | undefined> = [];
+        await expect(
+            createFallbackSender([recording('a', given), recording('b', given)]).send({
+                url: base,
+                method: 'POST',
+                headers: {},
+                body: '',
+                timeoutMs: 100,
+            })
+        ).rejects.toThrow(/No usable HTTP transport/);
+        expect(given).toEqual([2000, 2000]);
+    });
+
+    it('passes no deadline on when it was given none', async () => {
+        const given: Array<number | undefined> = [];
+        await expect(
+            createFallbackSender([recording('a', given), recording('b', given)]).send({
+                url: base,
+                method: 'POST',
+                headers: {},
+                body: '',
+            })
+        ).rejects.toThrow(/No usable HTTP transport/);
+        expect(given).toEqual([undefined, undefined]);
+    });
+
+    it('actually gives up on a server that never answers', async () => {
+        // The deterministic tests above prove the budget is split; this proves
+        // the timeout fires at all against a real socket. Bounded generously,
+        // because it is a smoke test and not a stopwatch.
         handler = () => {
             // Never responds.
         };
@@ -348,12 +409,11 @@ describe('transport fallback', () => {
                 method: 'POST',
                 headers: {},
                 body: '',
-                timeoutMs: 6000,
+                timeoutMs: 4000,
             })
         ).rejects.toThrow(/No usable HTTP transport/);
-        // Two candidates sharing 6s must not take 12s.
-        expect(Date.now() - started).toBeLessThan(9000);
-    }, 15000);
+        expect(Date.now() - started).toBeLessThan(20_000);
+    }, 40_000);
 
     it('does not fall through once a response exists', async () => {
         handler = (_request, response) => {

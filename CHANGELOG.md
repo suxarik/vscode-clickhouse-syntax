@@ -12,7 +12,14 @@ All notable changes to this extension will be documented in this file.
   verified against the Marketplace API rather than assumed. A downloads badge joins them.
 
 The listing renders the README from the published package, so this needed a release of its
-own to become visible. Nothing else changed.
+own to become visible.
+
+- **A flaky test that blocked this release.** `transport fallback › splits the deadline`
+  measured elapsed time against a bound barely above the sum of the parts it was measuring,
+  and failed on a slower CI runner. It now asserts the budget each candidate is handed —
+  which is the property that actually matters, is instant, and cannot race. Two more cases
+  came with it: the per-candidate floor, and passing no deadline on when none was given.
+  A generously bounded smoke test still proves the timeout fires against a real socket.
 
 ## [2.3.0] - 2026-08-30
 
