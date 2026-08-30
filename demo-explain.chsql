@@ -1,0 +1,89 @@
+-- EXPLAIN demo, against the local test server.
+--
+-- Put the cursor anywhere in a statement and press Cmd+Shift+Enter
+-- (Ctrl+Shift+Enter), or run "ClickHouse: Explain Query" from the palette.
+-- It asks which kind, then opens the answer as a read-only document.
+--
+-- Explaining does not run the query. Nothing below reads a row.
+--
+-- analytics.events is  ORDER BY (event_date, user_id),  PARTITION BY month,
+-- and has 6 active parts / 64 granules. That is what every plan below is
+-- compared against.
+
+
+-- ─── 1. The index doing its job ─────────────────────────────────────────────
+-- Pick PLAN.
+--
+-- `event_date` leads the sorting key, so ClickHouse can skip whole parts
+-- without opening them. The plan reports:
+--
+--     parts 1/6 (16.7%)   granules 10/64 (15.6%)
+--
+-- Five parts never touched. That line is the whole point of EXPLAIN.
+
+SELECT user_id, revenue
+FROM analytics.events
+WHERE event_date >= '2024-06-01'
+ORDER BY revenue DESC
+LIMIT 20;
+
+
+-- ─── 2. The index doing nothing ─────────────────────────────────────────────
+-- Same shape, but `event_type` is not in the sorting key, so nothing can be
+-- skipped:
+--
+--     Condition: true    parts 6/6    granules 64/64
+--
+-- The extension says plainly that nothing was pruned. The two queries look
+-- equally innocent in the editor; only the plan tells them apart.
+
+SELECT user_id, revenue
+FROM analytics.events
+WHERE event_type = 'purchase'
+ORDER BY revenue DESC
+LIMIT 20;
+
+
+-- ─── 3. What it would cost, before paying it ────────────────────────────────
+-- Pick ESTIMATE. Parts, rows and marks the query would read — without reading
+-- any of them. Worth checking before running something on a real cluster.
+
+SELECT user_id, sum(revenue)
+FROM analytics.events
+WHERE event_date >= '2024-06-01'
+GROUP BY user_id;
+
+
+-- ─── 4. How it will actually execute ────────────────────────────────────────
+-- Pick PIPELINE. The processors and how they fan out — useful when a query is
+-- slow and the plan looks fine, because this is where you see parallelism stop.
+
+SELECT event_type, count(), uniqExact(user_id)
+FROM analytics.events
+GROUP BY event_type;
+
+
+-- ─── 5. What ClickHouse thinks you wrote ────────────────────────────────────
+-- Pick SYNTAX. The query after the server rewrites it — predicate pushdown,
+-- alias substitution, CTE inlining. Worth a look when a query behaves in a way
+-- the text does not explain.
+
+WITH recent AS (
+    SELECT * FROM analytics.events WHERE event_date >= '2024-06-01'
+)
+SELECT event_type, count()
+FROM recent
+WHERE revenue > 0
+GROUP BY event_type;
+
+
+-- ─── 6. Catch a typo without running anything ───────────────────────────────
+-- Not EXPLAIN, but the same idea: "ClickHouse: Validate Against Server".
+--
+-- `evet_type` does not exist. The server resolves every name through
+-- EXPLAIN QUERY TREE and reports it without reading a row — and suggests the
+-- column you meant. Fix the typo, validate again, and it goes quiet.
+
+SELECT evet_type, count()
+FROM analytics.events
+GROUP BY evet_type;

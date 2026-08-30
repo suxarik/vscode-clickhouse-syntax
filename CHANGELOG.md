@@ -2,6 +2,25 @@
 
 All notable changes to the ClickHouse SQL Syntax extension will be documented in this file.
 
+## [2.3.0] - 2026-08-30
+
+The extension outgrew its name. It has not been a syntax highlighter since 2.0.
+
+### Changed
+
+- **Renamed to "ClickHouse SQL — IDE & Runbooks"** on the Marketplace, with a description
+  that says what it actually does. The extension id is unchanged
+  (`SuXarikisme.clickhouse-syntax`), so every existing install keeps working and updates
+  normally.
+- **The README is rewritten** around what it does today — connect and run, understand a
+  query before running it, runbooks, dbt and migrations — rather than opening with syntax
+  highlighting. Architecture and build notes moved to [CONTRIBUTING.md](CONTRIBUTING.md).
+
+### Added
+
+- **`Ctrl+Shift+Enter` / `Cmd+Shift+Enter` explains the statement at the cursor.** It had
+  no keybinding at all, which made the best feature in the extension the hardest to find.
+
 ## [2.2.3] - 2026-08-30
 
 Column sizing, verified by rendering the real grid bundle in a real browser rather than
