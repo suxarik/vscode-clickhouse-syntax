@@ -2,6 +2,18 @@
 
 All notable changes to this extension will be documented in this file.
 
+## [2.3.1] - 2026-08-30
+
+### Fixed
+
+- **The Marketplace badges rendered as "retired badge".** shields.io has retired its whole
+  `visual-studio-marketplace` family, so the version and installs badges showed an error
+  instead of a number. They now come from `badgen.net`, which serves the same data live —
+  verified against the Marketplace API rather than assumed. A downloads badge joins them.
+
+The listing renders the README from the published package, so this needed a release of its
+own to become visible. Nothing else changed.
+
 ## [2.3.0] - 2026-08-30
 
 **The first Marketplace release since 1.5.0.** Everything in 2.0, 2.1 and 2.2 below ships

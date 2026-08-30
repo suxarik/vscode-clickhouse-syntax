@@ -1,7 +1,8 @@
 # ClickHouse SQL — IDE & Runbooks
 
-[![Marketplace](https://img.shields.io/visual-studio-marketplace/v/SuXarikisme.clickhouse-syntax?label=marketplace)](https://marketplace.visualstudio.com/items?itemName=SuXarikisme.clickhouse-syntax)
-[![Installs](https://img.shields.io/visual-studio-marketplace/i/SuXarikisme.clickhouse-syntax)](https://marketplace.visualstudio.com/items?itemName=SuXarikisme.clickhouse-syntax)
+[![Marketplace](https://badgen.net/vs-marketplace/v/SuXarikisme.clickhouse-syntax)](https://marketplace.visualstudio.com/items?itemName=SuXarikisme.clickhouse-syntax)
+[![Installs](https://badgen.net/vs-marketplace/i/SuXarikisme.clickhouse-syntax)](https://marketplace.visualstudio.com/items?itemName=SuXarikisme.clickhouse-syntax)
+[![Downloads](https://badgen.net/vs-marketplace/d/SuXarikisme.clickhouse-syntax)](https://marketplace.visualstudio.com/items?itemName=SuXarikisme.clickhouse-syntax)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE.txt)
 
 Write ClickHouse SQL in an editor that understands the dialect, connect to a

@@ -2,7 +2,7 @@
   "name": "clickhouse-syntax",
   "displayName": "ClickHouse SQL \u2014 IDE & Runbooks",
   "description": "Run, explain and profile ClickHouse queries without leaving the editor. Result grid, incident runbooks, dbt models, schema migrations.",
-  "version": "2.3.0",
+  "version": "2.3.1",
   "publisher": "SuXarikisme",
   "icon": "images/clickhouse.png",
   "engines": {
