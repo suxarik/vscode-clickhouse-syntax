@@ -284,6 +284,11 @@
         "command": "clickhouse.showPerformanceStats",
         "title": "Show Performance Stats",
         "category": "ClickHouse"
+      },
+      {
+        "command": "clickhouse.explainStatementAt",
+        "title": "Explain Statement at Offset",
+        "category": "ClickHouse"
       }
     ],
     "menus": {
@@ -449,6 +454,10 @@
         },
         {
           "command": "clickhouse.showPerformanceStats"
+        },
+        {
+          "command": "clickhouse.explainStatementAt",
+          "when": "false"
         }
       ],
       "view/title": [
@@ -865,6 +874,11 @@
           "type": "boolean",
           "default": true,
           "description": "Show a Run action above each statement."
+        },
+        "clickhouse.query.showExplainCodeLens": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show an Explain action above each statement that reads. Explaining does not run the query."
         },
         "clickhouse.schema.source": {
           "type": "string",

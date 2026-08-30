@@ -31,8 +31,9 @@ to `settings.json`.
 
 ### 🔌 Connect and run
 
-- **`▷ Run` above every statement**, or `Ctrl+Enter` for the one under the
-  cursor. No selecting required.
+- **`▷ Run` and `Explain` above every statement**, or `Ctrl+Enter` /
+  `Ctrl+Shift+Enter` for the one under the cursor. No selecting required. A
+  destructive statement says so in the lens, before anyone clicks it.
 - **Results stream in** as they arrive, in a virtualised grid — a million rows
   arrive in about 1.6 seconds and render as fewer than eighty DOM nodes.
 - **Sort, filter, resize.** Drag a column edge, or double-click it to fit the
@@ -216,14 +217,14 @@ catalog came from.
 
 ## Commands
 
-40 commands, all under **ClickHouse:** in the palette. The ones worth knowing:
+41 commands, all under **ClickHouse:** in the palette. The ones worth knowing:
 
 | Command | What it does |
 | --- | --- |
 | Add Connection | Guided setup; tests the result |
 | Run Query · Run Statement at Cursor | `Ctrl+Enter` |
+| Explain Query | `Ctrl+Shift+Enter` — the plan, without running the query |
 | Cancel Query | Sends `KILL QUERY` |
-| Explain Query | The plan, as a tree |
 | Profile Last Query | Real counters from `system.query_log` |
 | Show Query History | Re-run, and pin what matters |
 | Open a Runbook Template | Three, for incident work |
@@ -236,7 +237,7 @@ catalog came from.
 
 ## Settings
 
-47 settings, all under `clickhouse.` in the Settings UI. The ones people change:
+48 settings, all under `clickhouse.` in the Settings UI. The ones people change:
 
 | Setting | Default | What it controls |
 | --- | --- | --- |
@@ -245,6 +246,7 @@ catalog came from.
 | `clickhouse.query.maxExecutionTime` | `60` | Seconds before the server aborts |
 | `clickhouse.query.previewRows` | `100` | Rows fetched by **Preview Rows** |
 | `clickhouse.schema.source` | `both` | `connection`, `file` or `both` |
+| `clickhouse.query.showExplainCodeLens` | `true` | The **Explain** action above each query |
 | `clickhouse.detect.mode` | `prompt` | Whether a `.sql` file may be switched to ClickHouse SQL |
 | `clickhouse.format.keywordCase` | `upper` | `upper`, `lower`, `preserve` |
 | `clickhouse.serverVersion` | *(unset)* | Hide functions newer than your server |

@@ -52,55 +52,68 @@ export function registerExplainCommands(
                 vscode.window.showInformationMessage('ClickHouse: nothing to explain at the cursor.');
                 return;
             }
+            await explain(target.sql);
+        }),
 
-            const picked = await vscode.window.showQuickPick(KINDS, { placeHolder: 'Explain what?' });
-            if (!picked) return;
-
-            const profile = connections.activeProfileName();
-            const client = await connections.client();
-            if (!client || !profile) {
-                vscode.window.showWarningMessage('ClickHouse: no connection selected.');
-                return;
-            }
-
-            // Strip a trailing semicolon so EXPLAIN wraps a single statement.
-            const sql = target.sql.replace(/;\s*$/, '');
-
-            await vscode.window.withProgress(
-                { location: vscode.ProgressLocation.Window, title: `ClickHouse: EXPLAIN ${picked.label}` },
-                async () => {
-                    try {
-                        // EXPLAIN only ever reads, whatever the statement inside it does.
-                        const result = await client.query(`EXPLAIN ${picked.expression} ${sql}`, {
-                            readOnly: true,
-                            maxExecutionTime: 30,
-                        });
-                        const raw = result.rows.map(row => String(row[0] ?? '')).join('\n');
-                        const content = buildExplainDocument({
-                            kind: picked.label,
-                            sql,
-                            profile,
-                            raw,
-                        });
-
-                        const uri = vscode.Uri.parse(
-                            `${EXPLAIN_SCHEME}:/${picked.label.toLowerCase()}-${Date.now()}.explain`
-                        );
-                        provider.set(uri, content);
-                        const document = await vscode.workspace.openTextDocument(uri);
-                        await vscode.window.showTextDocument(document, {
-                            viewColumn: vscode.ViewColumn.Beside,
-                            preview: true,
-                        });
-                    } catch (error) {
-                        const message =
-                            error instanceof ClickHouseError
-                                ? `${error.message}${error.code !== undefined ? ` (code ${error.code})` : ''}`
-                                : String(error);
-                        vscode.window.showErrorMessage(`ClickHouse: EXPLAIN failed - ${message}`);
-                    }
-                }
-            );
+        // What the Explain lens calls: the statement at an offset, whichever
+        // document it is in, rather than wherever the cursor happens to be.
+        vscode.commands.registerCommand('clickhouse.explainStatementAt', async (uri: vscode.Uri, offset: number) => {
+            const document = await vscode.workspace.openTextDocument(uri);
+            const position = document.positionAt(offset);
+            const target = resolveTarget(document, new vscode.Selection(position, position), analysisCache);
+            if (target) await explain(target.sql);
         }),
     ];
+
+    /** Ask which kind, run it, and open the rendered plan beside the query. */
+    async function explain(statement: string): Promise<void> {
+        const picked = await vscode.window.showQuickPick(KINDS, { placeHolder: 'Explain what?' });
+        if (!picked) return;
+
+        const profile = connections.activeProfileName();
+        const client = await connections.client();
+        if (!client || !profile) {
+            vscode.window.showWarningMessage('ClickHouse: no connection selected.');
+            return;
+        }
+
+        // Strip a trailing semicolon so EXPLAIN wraps a single statement.
+        const sql = statement.replace(/;\s*$/, '');
+
+        await vscode.window.withProgress(
+            { location: vscode.ProgressLocation.Window, title: `ClickHouse: EXPLAIN ${picked.label}` },
+            async () => {
+                try {
+                    // EXPLAIN only ever reads, whatever the statement inside it does.
+                    const result = await client.query(`EXPLAIN ${picked.expression} ${sql}`, {
+                        readOnly: true,
+                        maxExecutionTime: 30,
+                    });
+                    const raw = result.rows.map(row => String(row[0] ?? '')).join('\n');
+                    const content = buildExplainDocument({
+                        kind: picked.label,
+                        sql,
+                        profile,
+                        raw,
+                    });
+
+                    const uri = vscode.Uri.parse(
+                        `${EXPLAIN_SCHEME}:/${picked.label.toLowerCase()}-${Date.now()}.explain`
+                    );
+                    provider.set(uri, content);
+                    const document = await vscode.workspace.openTextDocument(uri);
+                    await vscode.window.showTextDocument(document, {
+                        viewColumn: vscode.ViewColumn.Beside,
+                        preview: true,
+                    });
+                } catch (error) {
+                    const message =
+                        error instanceof ClickHouseError
+                            ? `${error.message}${error.code !== undefined ? ` (code ${error.code})` : ''}`
+                            : String(error);
+                    vscode.window.showErrorMessage(`ClickHouse: EXPLAIN failed - ${message}`);
+                }
+            }
+        );
+    }
 }

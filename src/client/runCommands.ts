@@ -9,32 +9,57 @@ import { QueryRunner, resolveTarget } from './queryRunner';
 
 const SELECTOR = [{ language: 'clickhouse' }, { language: 'sql' }];
 
-/** A `▷ Run` lens above every statement. */
+/** `▷ Run` and `Explain` lenses above every statement. */
 export function registerRunCodeLens(analysisCache: AnalysisCache): vscode.Disposable {
     return vscode.languages.registerCodeLensProvider(SELECTOR, {
         provideCodeLenses(document) {
             const config = vscode.workspace.getConfiguration('clickhouse');
-            if (!config.get<boolean>('query.showRunCodeLens', true)) return [];
+            const showRun = config.get<boolean>('query.showRunCodeLens', true);
+            const showExplain = config.get<boolean>('query.showExplainCodeLens', true);
+            if (!showRun && !showExplain) return [];
 
             try {
                 const { program } = analysisCache.get(document);
-                return program.statements.map(statement => {
+                const lenses: vscode.CodeLens[] = [];
+
+                for (const statement of program.statements) {
                     const range = new vscode.Range(
                         document.positionAt(statement.start),
                         document.positionAt(statement.start)
                     );
                     const summary = classifyStatement(statement);
-                    // A destructive statement says so in the lens, before anyone clicks.
-                    const title =
-                        summary.effect === 'destructive'
-                            ? `$(warning) Run ${summary.label}`
-                            : `$(play) Run ${summary.label}`;
-                    return new vscode.CodeLens(range, {
-                        command: 'clickhouse.runStatementAt',
-                        title,
-                        arguments: [document.uri, statement.start],
-                    });
-                });
+
+                    if (showRun) {
+                        // A destructive statement says so in the lens, before
+                        // anyone clicks.
+                        const title =
+                            summary.effect === 'destructive'
+                                ? `$(warning) Run ${summary.label}`
+                                : `$(play) Run ${summary.label}`;
+                        lenses.push(
+                            new vscode.CodeLens(range, {
+                                command: 'clickhouse.runStatementAt',
+                                title,
+                                arguments: [document.uri, statement.start],
+                            })
+                        );
+                    }
+
+                    // Only on statements EXPLAIN has something to say about. A
+                    // lens that errors when clicked is worse than no lens.
+                    if (showExplain && summary.effect === 'read') {
+                        lenses.push(
+                            new vscode.CodeLens(range, {
+                                command: 'clickhouse.explainStatementAt',
+                                title: '$(list-tree) Explain',
+                                tooltip: 'Show the query plan without running the query',
+                                arguments: [document.uri, statement.start],
+                            })
+                        );
+                    }
+                }
+
+                return lenses;
             } catch (err) {
                 console.error('ClickHouse: run CodeLens failed', err);
                 return [];

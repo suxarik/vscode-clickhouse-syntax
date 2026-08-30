@@ -55,6 +55,7 @@ describe('ClickHouse extension', () => {
             'clickhouse.newNotebook',
             'clickhouse.openRunbookTemplate',
             'clickhouse.resetRunbookParameters',
+            'clickhouse.explainStatementAt',
         ]) {
             assert.ok(commands.includes(command), `${command} is not registered`);
         }
@@ -121,6 +122,23 @@ describe('ClickHouse extension', () => {
                     typeof value === 'object' && value !== null && (value as { rows?: number }).rows === 5000
             );
             assert.strictEqual((entry as { rows: number }).rows, 5000);
+        });
+
+        it('offers Run and Explain above each statement', async function (this: Mocha.Context) {
+            this.timeout(60_000);
+            const editor = await openDocument('SELECT id FROM it_test.rows LIMIT 3;\n\nDROP TABLE it_test.nope;');
+            const lenses = await vscode.commands.executeCommand<vscode.CodeLens[]>(
+                'vscode.executeCodeLensProvider',
+                editor.document.uri
+            );
+            const titles = (lenses ?? []).map(lens => lens.command?.title ?? '');
+            assert.ok(
+                titles.some(title => title.includes('Explain')),
+                `no Explain lens among ${JSON.stringify(titles)}`
+            );
+            // The destructive statement is marked, and is not offered an EXPLAIN.
+            assert.ok(titles.some(title => title.includes('$(warning) Run DROP')), JSON.stringify(titles));
+            assert.strictEqual(titles.filter(title => title.includes('Explain')).length, 1);
         });
 
         it('runs a statement that ends in a semicolon', async function (this: Mocha.Context) {

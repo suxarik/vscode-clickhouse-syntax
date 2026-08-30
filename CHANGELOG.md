@@ -18,6 +18,10 @@ The extension outgrew its name. It has not been a syntax highlighter since 2.0.
 
 ### Added
 
+- **An `Explain` action above every query**, beside the existing `▷ Run`. It appears only
+  on statements EXPLAIN has something to say about — a lens that errors when clicked is
+  worse than no lens — and it says in its tooltip that explaining does not run the query.
+  Turn it off with `clickhouse.query.showExplainCodeLens`.
 - **`Ctrl+Shift+Enter` / `Cmd+Shift+Enter` explains the statement at the cursor.** It had
   no keybinding at all, which made the best feature in the extension the hardest to find.
 
