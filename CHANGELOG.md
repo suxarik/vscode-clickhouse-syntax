@@ -2,6 +2,24 @@
 
 All notable changes to the ClickHouse SQL Syntax extension will be documented in this file.
 
+## [2.2.1] - 2026-08-30
+
+### Fixed
+
+- **A statement ending in `;` failed with a syntax error.** The request always ends with an
+  appended `FORMAT JSONCompactEachRowWithNamesAndTypes`, because the grid can only read one
+  format — so a trailing terminator made ClickHouse read that clause as a second statement
+  and refuse the whole thing with *"Multi-statements are not allowed"*, pointing at a line
+  the user never wrote. This hit **every notebook cell**, since saving a runbook terminates
+  each cell that is followed by more SQL, and any run of a selection that included the
+  semicolon. Found by running the demo runbook against a real server.
+- A `FORMAT` clause of your own produced an equally baffling syntax error for the same
+  reason. It cannot be honoured — the grid has no way to render CSV — so it is now replaced,
+  and the query trace says which format was dropped rather than doing it silently.
+
+Both are handled by tokenising rather than matching text, so a semicolon inside a string
+literal and the word `FORMAT` inside a comment are left alone.
+
 ## [2.2.0] - 2026-08-29
 
 dbt models, and migrations you read before you run.

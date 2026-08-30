@@ -11,6 +11,7 @@
  */
 import { ClickHouseError, ColumnMeta, QueryResult, QuerySummary, ResolvedConnection } from './types';
 import { defaultSender, HttpSender, SendResponse } from './transport';
+import { isTrivia, TokenKind, tokenize } from '../lexer';
 
 export interface QueryOptions {
     /** Supplied so the query can be cancelled with KILL QUERY. */
@@ -45,6 +46,48 @@ export interface QueryOptions {
 }
 
 const STREAM_FORMAT = 'JSONCompactEachRowWithNamesAndTypes';
+
+/**
+ * Prepare a statement for the wire.
+ *
+ * The result view can only read one format, so the request always ends with
+ * `FORMAT JSONCompactEachRowWithNamesAndTypes`. Two things in the statement
+ * would collide with that, and ClickHouse reports both as bare syntax errors
+ * pointing at a line the user never wrote:
+ *
+ * - A trailing `;` ends the statement, so the appended FORMAT reads as a second
+ *   one and the server refuses it as a multi-statement. Notebook cells always
+ *   carry one, and so does anyone who selects a whole statement and runs it.
+ * - An explicit `FORMAT` of the user's own cannot be honoured - the grid has no
+ *   way to render CSV - and leaving it in place produces a syntax error rather
+ *   than an explanation.
+ *
+ * Tokenising rather than matching text, so a semicolon inside a string literal
+ * or a `FORMAT` inside a comment is left alone.
+ */
+export function prepareStatement(sql: string): { sql: string; replacedFormat?: string } {
+    const tokens = tokenize(sql).filter(token => !isTrivia(token));
+
+    let end = tokens.length;
+    let replacedFormat: string | undefined;
+
+    // Trailing `;`, possibly several.
+    while (end > 0 && tokens[end - 1].kind === TokenKind.Punct && tokens[end - 1].text === ';') end--;
+
+    // `FORMAT <name>` at what is now the end.
+    if (end >= 2 && tokens[end - 2].kind === TokenKind.Word && tokens[end - 2].upper === 'FORMAT') {
+        replacedFormat = tokens[end - 1].text;
+        end -= 2;
+        while (end > 0 && tokens[end - 1].kind === TokenKind.Punct && tokens[end - 1].text === ';') end--;
+    }
+
+    if (end === tokens.length) return { sql };
+    // Cut at the first token being dropped, so everything before it - comments
+    // and formatting included - survives exactly as written.
+    const cut = tokens[end]?.start ?? sql.length;
+    const trimmed = sql.slice(0, cut).replace(/\s+$/, '');
+    return replacedFormat ? { sql: trimmed, replacedFormat } : { sql: trimmed };
+}
 
 /** RFC 4122 v4, using the crypto both hosts provide. */
 export function newQueryId(): string {
@@ -255,12 +298,18 @@ export class ClickHouseClient {
         try {
             let response: SendResponse;
             trace(`sending to ${url.split('?')[0]} via ${this.sender.name}`);
+            const prepared = prepareStatement(sql);
+            if (prepared.replacedFormat) {
+                trace(
+                    `ignoring FORMAT ${prepared.replacedFormat}: the result view reads ${STREAM_FORMAT}`
+                );
+            }
             try {
                 response = await this.sender.send({
                     url,
                     method: 'POST',
                     headers: this.headers(),
-                    body: `${sql}\nFORMAT ${STREAM_FORMAT}`,
+                    body: `${prepared.sql}\nFORMAT ${STREAM_FORMAT}`,
                     signal: controller.signal,
                     onTrace: options.onTrace,
                     allowInvalidCertificate: this.connection.allowInvalidCertificate,

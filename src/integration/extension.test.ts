@@ -123,6 +123,22 @@ describe('ClickHouse extension', () => {
             assert.strictEqual((entry as { rows: number }).rows, 5000);
         });
 
+        it('runs a statement that ends in a semicolon', async function (this: Mocha.Context) {
+            this.timeout(60_000);
+            // The request ends with an appended FORMAT clause, so a trailing
+            // terminator made ClickHouse read it as a second statement and
+            // refuse the lot. Every notebook cell carries one.
+            await openDocument('SELECT id FROM it_test.rows ORDER BY id LIMIT 7;');
+            await vscode.commands.executeCommand('clickhouse.runQuery');
+            const entry = await eventually(
+                'the terminated query to finish',
+                () => vscode.commands.executeCommand('clickhouse.debug.lastHistoryEntry'),
+                (value: unknown) =>
+                    typeof value === 'object' && value !== null && (value as { rows?: number }).rows === 7
+            );
+            assert.strictEqual((entry as { error?: string }).error, undefined);
+        });
+
         it('refuses a write, and the server confirms nothing happened', async function (this: Mocha.Context) {
             this.timeout(60_000);
             await openDocument('CREATE TABLE it_test.must_not_exist (a UInt8) ENGINE = Memory');
@@ -192,7 +208,8 @@ describe('ClickHouse extension', () => {
 
         it('runs a cell and puts the rows in the output, not in the file', async function (this: Mocha.Context) {
             this.timeout(120_000);
-            const notebook = await openNotebook('-- %%\nSELECT id FROM it_test.rows ORDER BY id LIMIT 3\n');
+            // Terminated, as every saved cell is.
+            const notebook = await openNotebook('-- %%\nSELECT id FROM it_test.rows ORDER BY id LIMIT 3;\n');
             const editor = await vscode.window.showNotebookDocument(notebook);
             await vscode.commands.executeCommand('notebook.selectKernel', {
                 id: 'clickhouse-it-readonly',

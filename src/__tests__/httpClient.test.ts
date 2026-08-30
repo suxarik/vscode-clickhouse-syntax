@@ -1,7 +1,7 @@
 /**
  * Tests for the ClickHouse HTTP client, against a stubbed fetch.
  */
-import { ClickHouseClient, newQueryId, parseServerError, parseSummary } from '../client/httpClient';
+import { prepareStatement, ClickHouseClient, newQueryId, parseServerError, parseSummary } from '../client/httpClient';
 import { ClickHouseError, ResolvedConnection } from '../client/types';
 
 const CONNECTION: ResolvedConnection = {
@@ -453,5 +453,78 @@ describe('authentication', () => {
         stubFetch(NAMES_TYPES_ROWS);
         await new ClickHouseClient({ ...CONNECTION, auth: 'token', password: undefined }).query('SELECT 1');
         expect(calls[0].init.headers as Record<string, string>).not.toHaveProperty('Authorization');
+    });
+});
+
+describe('preparing a statement for the wire', () => {
+    /**
+     * The request always ends with `FORMAT JSONCompactEachRowWithNamesAndTypes`
+     * because the grid can only read one format. Found by running a notebook
+     * against a real server: a cell ending in `;` made ClickHouse read the
+     * appended FORMAT as a second statement and refuse the whole thing with
+     * "Multi-statements are not allowed", pointing at a line the user never
+     * wrote. Notebook cells always carry a terminator, and so does anyone who
+     * selects a whole statement and runs it.
+     */
+    it('drops a trailing semicolon', () => {
+        expect(prepareStatement('SELECT 1;').sql).toBe('SELECT 1');
+        expect(prepareStatement('SELECT 1;\n').sql).toBe('SELECT 1');
+        expect(prepareStatement('SELECT 1;;').sql).toBe('SELECT 1');
+    });
+
+    it('drops one that a comment follows', () => {
+        expect(prepareStatement('SELECT 1; -- done').sql).toBe('SELECT 1');
+    });
+
+    it('keeps a comment that comes before it', () => {
+        // Everything before the dropped token survives exactly as written.
+        expect(prepareStatement('SELECT 1\n-- a note\n;').sql).toBe('SELECT 1\n-- a note');
+    });
+
+    it('leaves a semicolon inside a string alone', () => {
+        // Which is why this tokenises rather than matching text.
+        expect(prepareStatement("SELECT ';' AS x").sql).toBe("SELECT ';' AS x");
+        expect(prepareStatement("SELECT ';'").sql).toBe("SELECT ';'");
+        expect(prepareStatement("SELECT ';';").sql).toBe("SELECT ';'");
+    });
+
+    it('leaves a statement that needs nothing done to it untouched', () => {
+        const sql = 'SELECT a, b FROM t WHERE a > 1';
+        expect(prepareStatement(sql)).toEqual({ sql });
+    });
+
+    it('replaces a FORMAT of the user\'s own, and says which', () => {
+        // It cannot be honoured - the grid has no way to render CSV - and
+        // leaving it in place produces a syntax error rather than an explanation.
+        expect(prepareStatement('SELECT 1 FORMAT CSV')).toEqual({ sql: 'SELECT 1', replacedFormat: 'CSV' });
+        expect(prepareStatement('SELECT 1 FORMAT CSV;')).toEqual({ sql: 'SELECT 1', replacedFormat: 'CSV' });
+        expect(prepareStatement('SELECT 1 format json')).toMatchObject({ replacedFormat: 'json' });
+    });
+
+    it('leaves the word FORMAT alone when it is not a clause', () => {
+        expect(prepareStatement('SELECT 1 -- FORMAT CSV').replacedFormat).toBeUndefined();
+        expect(prepareStatement("SELECT 'FORMAT CSV'").replacedFormat).toBeUndefined();
+        expect(prepareStatement('SELECT formatDateTime(now(), \'%F\')').replacedFormat).toBeUndefined();
+    });
+
+    it('copes with nothing at all', () => {
+        expect(prepareStatement('').sql).toBe('');
+        expect(prepareStatement(';').sql).toBe('');
+        expect(prepareStatement('   ').sql).toBe('   ');
+    });
+
+    it('sends the prepared statement, not the original', async () => {
+        stubFetch(NAMES_TYPES_ROWS);
+        await new ClickHouseClient(CONNECTION).query('SELECT 1;');
+        const body = (globalThis.fetch as jest.Mock).mock.calls[0][1].body as string;
+        expect(body).toBe('SELECT 1\nFORMAT JSONCompactEachRowWithNamesAndTypes');
+        expect(body).not.toContain(';');
+    });
+
+    it('traces a replaced FORMAT rather than doing it silently', async () => {
+        stubFetch(NAMES_TYPES_ROWS);
+        const notes: string[] = [];
+        await new ClickHouseClient(CONNECTION).query('SELECT 1 FORMAT CSV', { onTrace: note => notes.push(note) });
+        expect(notes.join('\n')).toContain('ignoring FORMAT CSV');
     });
 });
