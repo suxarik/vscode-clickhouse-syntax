@@ -4,6 +4,37 @@ All notable changes to this extension will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **A plan visualiser, from the profile rather than the estimate.** `◉ Analyze`,
+  beside Run and Explain, runs the query and reads `system.processors_profile_log`:
+  real CPU time, rows in and out, and waiting time per operator. The plan text and
+  the drawing share one resizable panel, and selecting an operator marks the line the
+  server wrote it on.
+
+  Two drawings of one graph. The flame makes width mean time, so the bottleneck is the
+  widest bar. The node-link view sizes each box by its cost and each edge by the rows
+  crossing it. ClickHouse runs one processor per thread — 54 rows for a plain `GROUP BY`
+  is ordinary — so processors collapse into the plan step they belong to, and runs of
+  steps below a percent fold into one. Eleven boxes become eight, and the two that
+  matter are the two you see.
+
+  Fit and 1:1 for zoom; SVG, PNG and JPG to save. An exported drawing carries its own
+  background, resolved colours and a real font stack, because a file inherits no theme
+  — which is the usual reason an exported diagram opens looking wrong.
+
+  Analyze executes, so it is offered on reads only and refuses anything else whatever
+  the profile permits. It runs with `FORMAT Null`: the server does the work and returns
+  nothing, so no production rows are fetched to draw a picture of them.
+
+  **Runbooks get it too.** A query cell has an Analyze action that renders the same view
+  in the cell's own output, through the same transport seam the result grid uses.
+
+  CPU time and wall clock are reported side by side and never conflated. Summed
+  `elapsed_us` is work across every thread, not duration — 82 ms of CPU inside 31 ms of
+  wall clock is eighteen threads, not a slow query. Below 1× the panel says the query was
+  waiting rather than calling it parallelism.
+
 ### Fixed
 
 - **`DELETE FROM` and `UPDATE` were classified as reads.** The parser models neither, and

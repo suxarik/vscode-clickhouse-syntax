@@ -60,6 +60,33 @@ to `settings.json`.
   which tables are read and how much each index actually removed
   (`parts 1/3 (33.3%)  granules 8/24 (33.3%)`). It says plainly when nothing was
   pruned.
+- **`◉ Analyze` draws where the time actually went.** Explain predicts; Analyze
+  runs the query and reads `system.processors_profile_log`, so every operator
+  carries its real CPU time, rows in and out, and how long it sat waiting. The
+  plan text and the drawing share one panel, split and resizable, and selecting
+  an operator marks the line the server wrote it on.
+
+  Two drawings of the same graph, switchable: a **flame** where width is time,
+  so the bottleneck is simply the widest bar, and a **node-link graph** where a
+  box's size is its cost and an edge's thickness is the rows crossing it. Runs
+  of steps too small to matter fold into one, so a pipeline stays readable
+  rather than becoming a wall of equal boxes. **Fit** and **1:1** control the
+  zoom; **SVG**, **PNG** and **JPG** save the drawing.
+
+  CPU time and wall clock are reported side by side and never conflated — a
+  query can burn 82 ms of CPU inside 31 ms of wall clock across eighteen
+  threads, and the panel says so rather than picking one and calling it
+  duration.
+
+  Analyze **executes**, so it is offered on reads only, and refuses anything
+  else however the profile is configured. It runs the query with `FORMAT Null`:
+  the server does all the work and returns no rows, so no production data is
+  fetched to draw a picture of it.
+
+  **In runbooks too** — a query cell has an Analyze action that puts the same
+  view in the cell's own output, so an incident note keeps the evidence beside
+  the step that found it.
+
 - **Validate against the real server** on demand, via `EXPLAIN QUERY TREE` —
   which resolves every name without reading a single row.
 - **Profile the last query** from `system.query_log`: duration, rows and bytes
