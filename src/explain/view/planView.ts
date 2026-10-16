@@ -534,6 +534,8 @@ export class PlanView {
             const y = node.y * height;
             const w = node.width * width;
             const h = Math.max(26, node.height * height);
+            const consumers = laid.edges.filter(edge => edge.from === node.id);
+            const isSink = consumers.length === 0;
 
             group.append(
                 element('rect', {
@@ -582,18 +584,20 @@ export class PlanView {
                 'text-anchor': 'middle',
                 class: 'ch-label',
             });
+            // Analyze runs with FORMAT Null, so the sink discards its rows and
+            // reports none out. Printing that reads as "returned nothing".
+            const rows = isSink ? node.inputRows : node.outputRows;
             detail.textContent = fit(
-                `${formatDuration(node.cpuUs)} · ${formatCount(node.outputRows)} rows`,
+                `${formatDuration(node.cpuUs)} · ${formatCount(rows)} rows${isSink ? ' in' : ''}`,
                 w
             );
             group.append(detail);
 
-            const consumers = laid.edges.filter(edge => edge.from === node.id);
             const target = byId.get(consumers[0]?.to ?? '');
             const feeds = target
                 ? `feeds ${target.label}${target.inputs.length > 1 ? ` · one of ${target.inputs.length} inputs` : ''}`
                 : undefined;
-            this.wire(group, node.id, node.label, node, feeds);
+            this.wire(group, node.id, node.label, node, feeds ?? 'the end of the pipeline · rows are discarded by FORMAT Null');
             svg.append(group);
         }
         return svg;

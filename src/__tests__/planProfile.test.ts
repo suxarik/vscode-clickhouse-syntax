@@ -38,7 +38,7 @@ function fakeClient(profileAnswers: unknown[][][]): ProfileClient & { sent: stri
                 return result(PROFILE_COLUMNS, rows);
             }
             if (sql.includes('query_log')) {
-                return result(['query_duration_ms', 'read_rows', 'read_bytes', 'memory_usage', 'threads'], [[31, 1566400, 27467652, 13983538, 18]]);
+                return result(['query_duration_ms', 'read_rows', 'read_bytes', 'result_rows', 'memory_usage', 'threads'], [[31, 1566400, 27467652, 100, 13983538, 18]]);
             }
             return result([], []);
         },
@@ -92,7 +92,7 @@ describe('collectProfile', () => {
             sleep: never,
         });
 
-        expect(collected.summary).toMatchObject({ query_duration_ms: 31, read_rows: 1566400, threads: 18 });
+        expect(collected.summary).toMatchObject({ query_duration_ms: 31, read_rows: 1566400, result_rows: 100, threads: 18 });
     });
 
     it('keeps polling until the log buffer flushes', async () => {

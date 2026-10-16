@@ -31,6 +31,8 @@ export interface QuerySummary {
     query_duration_ms: number;
     read_rows: number;
     read_bytes: number;
+    /** What came back, which next to `read_rows` is the amplification. */
+    result_rows: number;
     memory_usage: number;
     threads: number;
 }
@@ -65,7 +67,7 @@ const PROFILE_SQL =
     'FROM system.processors_profile_log WHERE query_id = {qid:String} ORDER BY id';
 
 const SUMMARY_SQL =
-    'SELECT query_duration_ms, read_rows, read_bytes, memory_usage, length(thread_ids) AS threads ' +
+    'SELECT query_duration_ms, read_rows, read_bytes, result_rows, memory_usage, length(thread_ids) AS threads ' +
     "FROM system.query_log WHERE query_id = {qid:String} AND type != 'QueryStart' " +
     'ORDER BY event_time DESC LIMIT 1';
 
@@ -157,6 +159,7 @@ export async function collectProfile(
             query_duration_ms: Number(raw.query_duration_ms ?? 0),
             read_rows: Number(raw.read_rows ?? 0),
             read_bytes: Number(raw.read_bytes ?? 0),
+            result_rows: Number(raw.result_rows ?? 0),
             memory_usage: Number(raw.memory_usage ?? 0),
             threads: Number(raw.threads ?? 0),
         };

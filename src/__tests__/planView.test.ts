@@ -24,6 +24,7 @@ function payload(over: Partial<PlanPayload> = {}): PlanPayload {
             query_duration_ms: 31,
             read_rows: 1566400,
             read_bytes: 27467652,
+            result_rows: 100,
             memory_usage: 13983538,
             threads: 18,
         },
@@ -209,6 +210,21 @@ describe('PlanView', () => {
         expect(unlabelled).toHaveLength(0);
     });
 
+    it('shows the rows a sink received, not the nothing it wrote', () => {
+        // Analyze runs with FORMAT Null, so the output format discards its rows
+        // and reports zero out. Printing that under the last box reads as "this
+        // query returned nothing", which is the opposite of what happened.
+        const { root, send } = mount();
+        send({ type: 'plan', payload: payload() });
+        ([...root.querySelectorAll('.ch-views button')].find(b => b.textContent === 'Graph') as HTMLButtonElement).click();
+
+        const sink = [...root.querySelectorAll('.ch-cell')].find(cell =>
+            (cell.textContent ?? '').includes('OutputFormat')
+        );
+        expect(sink).toBeDefined();
+        expect(sink?.textContent ?? '').not.toMatch(/\b0 rows\b/);
+    });
+
     it('says what the width means, since left to right is not time', () => {
         const { root, send } = mount();
         send({ type: 'plan', payload: payload() });
@@ -302,7 +318,7 @@ describe('PlanView', () => {
         send({
             type: 'plan',
             payload: payload({
-                summary: { query_duration_ms: 192, read_rows: 1, read_bytes: 1, memory_usage: 1, threads: 8 },
+                summary: { query_duration_ms: 192, read_rows: 1, read_bytes: 1, result_rows: 1, memory_usage: 1, threads: 8 },
             }),
         });
 
