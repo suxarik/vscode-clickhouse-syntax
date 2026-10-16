@@ -74,6 +74,13 @@ body {
 .ch-cell rect { transition: none; }
 .ch-label { pointer-events: none; }
 
+.ch-legend {
+  flex: 0 0 22px; display: flex; align-items: center; padding: 0 10px;
+  border-top: 1px solid var(--ch-border);
+  color: var(--vscode-descriptionForeground); font-size: 11px; opacity: .85;
+}
+.ch-tip-feeds { color: var(--vscode-descriptionForeground); margin-bottom: 4px; }
+
 .ch-summary {
   display: flex; align-items: center; gap: 18px;
   height: 28px; flex: 0 0 28px; padding: 0 10px;

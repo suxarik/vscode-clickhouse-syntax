@@ -27,6 +27,13 @@ export interface FlameCell {
     bottleneck: boolean;
     /** Zero unless this row stands for a folded run of steps. */
     foldedCount: number;
+    /**
+     * The step this one feeds, and how many inputs that step has.
+     *
+     * Position across the flame is nesting, not time, so a bar sitting on its
+     * own to the right needs some way of saying what it belongs to.
+     */
+    feeds?: { label: string; inputs: number };
     node: FoldedNode;
 }
 
@@ -68,7 +75,8 @@ export function flameLayout(graph: PlanGraph, options: FoldOptions = {}): FlameC
         available: number,
         parentCost: number,
         depth: number,
-        seen: Set<string>
+        seen: Set<string>,
+        parent?: FoldedNode
     ): void => {
         // Heaviest first: the thing worth looking at should be where the eye
         // already is, rather than wherever the server happened to list it.
@@ -94,12 +102,13 @@ export function flameLayout(graph: PlanGraph, options: FoldOptions = {}): FlameC
                 hot: hot.has(id),
                 bottleneck: id === bottleneck,
                 foldedCount: node.foldedCount,
+                feeds: parent ? { label: parent.label, inputs: parent.inputs.length } : undefined,
                 node,
             });
 
             const nested = new Set(seen);
             nested.add(id);
-            place(node.inputs, x, width, cost(id), depth + 1, nested);
+            place(node.inputs, x, width, cost(id), depth + 1, nested, node);
             x += width;
         }
     };

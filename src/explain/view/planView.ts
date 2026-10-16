@@ -70,6 +70,7 @@ export class PlanView {
     private readonly explainBody: HTMLElement;
     private readonly canvas: HTMLElement;
     private readonly summary: HTMLElement;
+    private readonly legend: HTMLElement;
     private readonly tip: HTMLElement;
     private readonly buttons = new Map<ViewKind, HTMLButtonElement>();
 
@@ -101,8 +102,9 @@ export class PlanView {
         const planPane = html('div', 'ch-pane-plan');
         planPane.append(this.toolbar());
         this.canvas = html('div', 'ch-canvas');
+        this.legend = html('div', 'ch-legend');
         this.summary = html('div', 'ch-summary');
-        planPane.append(this.canvas, this.summary);
+        planPane.append(this.canvas, this.legend, this.summary);
 
         this.makePannable(this.canvas);
 
@@ -292,8 +294,22 @@ export class PlanView {
         );
     }
 
+    /**
+     * What the picture means.
+     *
+     * Across the flame is nesting, not time, and a reader will take it for
+     * time unless told otherwise — the small bars beside a join get read as
+     * something that happened afterwards.
+     */
+    private describeView(): string {
+        return this.kind === 'flame'
+            ? 'Width is share of CPU time. A bar sits under the step it feeds — left to right is not time.'
+            : 'Box size is share of CPU time. Arrows point from a step to the one it feeds; labels are rows.';
+    }
+
     private draw(): void {
         if (!this.payload) return;
+        this.legend.textContent = this.describeView();
         const drawing = this.kind === 'flame' ? this.drawFlame() : this.drawGraph();
         this.applyZoom(drawing);
         this.canvas.replaceChildren(this.tip, drawing);
@@ -422,7 +438,10 @@ export class PlanView {
             group.append(right);
         }
 
-        this.wire(group, cell.id, node.label, node);
+        const feeds = cell.feeds
+            ? `feeds ${cell.feeds.label}${cell.feeds.inputs > 1 ? ` · one of ${cell.feeds.inputs} inputs` : ''}`
+            : undefined;
+        this.wire(group, cell.id, node.label, node, feeds);
         return group;
     }
 
@@ -569,7 +588,12 @@ export class PlanView {
             );
             group.append(detail);
 
-            this.wire(group, node.id, node.label, node);
+            const consumers = laid.edges.filter(edge => edge.from === node.id);
+            const target = byId.get(consumers[0]?.to ?? '');
+            const feeds = target
+                ? `feeds ${target.label}${target.inputs.length > 1 ? ` · one of ${target.inputs.length} inputs` : ''}`
+                : undefined;
+            this.wire(group, node.id, node.label, node, feeds);
             svg.append(group);
         }
         return svg;
@@ -629,9 +653,10 @@ export class PlanView {
         group: SVGGElement,
         id: string,
         label: string,
-        node: { cpuUs: number; processors: number; inputRows: number; outputRows: number; inputWaitUs: number; outputWaitUs: number; outputBytes: number; description: string }
+        node: { cpuUs: number; processors: number; inputRows: number; outputRows: number; inputWaitUs: number; outputWaitUs: number; outputBytes: number; description: string },
+        feeds?: string
     ): void {
-        group.addEventListener('mousemove', event => this.showTip(event, label, node));
+        group.addEventListener('mousemove', event => this.showTip(event, label, node, feeds));
         group.addEventListener('mouseleave', () => {
             this.tip.style.display = 'none';
         });
@@ -649,7 +674,8 @@ export class PlanView {
     private showTip(
         event: MouseEvent,
         label: string,
-        node: { cpuUs: number; processors: number; inputRows: number; outputRows: number; inputWaitUs: number; outputWaitUs: number; outputBytes: number; description: string }
+        node: { cpuUs: number; processors: number; inputRows: number; outputRows: number; inputWaitUs: number; outputWaitUs: number; outputBytes: number; description: string },
+        feeds?: string
     ): void {
         const rows: Array<[string, string]> = [
             ['CPU time', formatDuration(node.cpuUs)],
@@ -665,6 +691,7 @@ export class PlanView {
         }
 
         this.tip.replaceChildren(html('div', 'ch-tip-name', label));
+        if (feeds) this.tip.append(html('div', 'ch-tip-feeds', feeds));
         if (node.description) this.tip.append(html('div', '', node.description));
         this.tip.append(list);
 

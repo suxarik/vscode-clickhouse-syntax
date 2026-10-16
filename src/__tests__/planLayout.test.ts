@@ -398,3 +398,27 @@ describe('room for the arrows', () => {
         }
     });
 });
+
+describe('what a bar sits under', () => {
+    const joined = (): PlanGraph =>
+        graphOf([
+            ['Join_1', 50, []],
+            ['BigRead_1', 400, ['Join_1']],
+            ['SmallRead_1', 20, ['Join_1']],
+        ]);
+
+    it('records what each bar feeds, so a lone one can explain itself', () => {
+        const cells = flameLayout(joined());
+        expect(cells.find(cell => cell.id === 'SmallRead_1')?.feeds).toMatchObject({ label: 'Join' });
+    });
+
+    it('says how many inputs that consumer has, which is why there are two bars', () => {
+        const cells = flameLayout(joined());
+        expect(cells.find(cell => cell.id === 'SmallRead_1')?.feeds?.inputs).toBe(2);
+        expect(cells.find(cell => cell.id === 'BigRead_1')?.feeds?.inputs).toBe(2);
+    });
+
+    it('leaves the sink with nothing to feed', () => {
+        expect(flameLayout(joined()).find(cell => cell.id === 'Join_1')?.feeds).toBeUndefined();
+    });
+});

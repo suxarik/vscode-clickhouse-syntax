@@ -209,6 +209,43 @@ describe('PlanView', () => {
         expect(unlabelled).toHaveLength(0);
     });
 
+    it('says what the width means, since left to right is not time', () => {
+        const { root, send } = mount();
+        send({ type: 'plan', payload: payload() });
+
+        const caption = root.querySelector('.ch-legend')?.textContent ?? '';
+        expect(caption).toContain('CPU');
+        expect(caption).toContain('not time');
+    });
+
+    it('explains the graph differently, because it reads differently', () => {
+        const { root, send } = mount();
+        send({ type: 'plan', payload: payload() });
+        ([...root.querySelectorAll('.ch-views button')].find(b => b.textContent === 'Graph') as HTMLButtonElement).click();
+
+        expect(root.querySelector('.ch-legend')?.textContent ?? '').toContain('Arrows');
+    });
+
+    it('tells a lone bar what it belongs to', () => {
+        const { root, send } = mount();
+        send({ type: 'plan', payload: forkedPayload() });
+
+        // The small bars beside a join are its other input, which is the whole
+        // question a reader has when they see one sitting on its own.
+        const cells = [...root.querySelectorAll('.ch-canvas .ch-cell')] as SVGGElement[];
+        let sawFeeds = false;
+        for (const cell of cells) {
+            cell.dispatchEvent(new MouseEvent('mousemove', { clientX: 10, clientY: 10, bubbles: true }));
+            const tip = root.querySelector('.ch-tip')?.textContent ?? '';
+            if (tip.includes('feeds')) sawFeeds = true;
+            if (tip.includes('of 2 inputs')) {
+                expect(tip).toContain('feeds');
+                return;
+            }
+        }
+        expect(sawFeeds).toBe(true);
+    });
+
     it('pans the drawing when it is dragged', () => {
         const { root, send } = mount();
         send({ type: 'plan', payload: payload() });
