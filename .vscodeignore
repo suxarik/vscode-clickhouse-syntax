@@ -30,7 +30,6 @@ demo/**
 **/*.ch.sql
 clickhouse-schema.json
 
-images/icon.png
 *.vsix
 docs/**
 .vscode-test.mjs
@@ -38,3 +37,8 @@ docs/**
 
 # ...but the shipped runbook templates are .sql on purpose, and must be packaged.
 !media/runbooks/**
+
+# Brand artwork is referenced from the README/CHANGELOG by absolute URL once
+# published, so it does not need to travel inside the extension.
+images/banner.png
+images/social-card.png

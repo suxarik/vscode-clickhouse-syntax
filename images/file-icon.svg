@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="ClickHouse SQL file">
+  <rect x="12" y="15" width="104" height="26" rx="6" fill="#FFCF5C"/>
+  <rect x="12" y="51" width="63" height="26" rx="6" fill="#FFA51F"/>
+  <rect x="85" y="51" width="31" height="26" rx="6" fill="#FFA51F"/>
+  <rect x="12" y="87" width="34" height="26" rx="6" fill="#FF7A00"/>
+  <rect x="56" y="87" width="19" height="26" rx="6" fill="#FF7A00"/>
+  <rect x="85" y="87" width="20" height="26" rx="6" fill="#FF7A00"/>
+</svg>

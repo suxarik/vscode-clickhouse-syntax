@@ -2,9 +2,9 @@
   "name": "clickhouse-syntax",
   "displayName": "ClickHouse SQL \u2014 IDE & Runbooks",
   "description": "Run, explain and profile ClickHouse queries without leaving the editor. Result grid, incident runbooks, dbt models, schema migrations.",
-  "version": "2.5.6",
+  "version": "2.5.7",
   "publisher": "SuXarikisme",
-  "icon": "images/clickhouse.png",
+  "icon": "images/icon.png",
   "engines": {
     "vscode": "^1.95.0"
   },
@@ -74,8 +74,8 @@
         "firstLine": "^--\\s*(clickhouse|ClickHouse)",
         "configuration": "./language-configuration.json",
         "icon": {
-          "light": "./images/clickhouse.png",
-          "dark": "./images/clickhouse.png"
+          "light": "./images/file-icon.png",
+          "dark": "./images/file-icon.png"
         }
       }
     ],
@@ -997,7 +997,7 @@
         {
           "id": "clickhouse",
           "title": "ClickHouse",
-          "icon": "images/clickhouse-plain.svg"
+          "icon": "images/activity-bar.svg"
         }
       ]
     },

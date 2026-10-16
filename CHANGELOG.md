@@ -1,6 +1,40 @@
+![ClickHouse SQL — IDE & Runbooks for VS Code](images/banner.png)
+
 # Changelog
 
 All notable changes to this extension will be documented in this file.
+
+## [2.5.7] - 2026-10-16
+
+### Changed
+
+- **The extension has its own icon.** The new mark is the icicle from the query plan
+  visualiser: a root bar narrowing into the steps beneath it, warm at the top and hot
+  where the time goes. It is the one picture this extension draws that nothing else
+  does, and it keeps the amber the UI already uses for `clickhouse.writable`.
+
+  It replaces the icon on the Marketplace listing, on `.chsql` files and in the activity
+  bar, and it reads cleanly all the way down to 16px. The plan visualiser's hot-path
+  highlight moves to the same amber, so the two agree. Nothing else changes.
+
+### Added
+
+- **A trademark notice.** The README now states that this extension is independent and
+  is not affiliated with, endorsed by or sponsored by ClickHouse, Inc., and that MIT
+  covers its source rather than anyone's mark.
+
+- **A NOTICE file, and the Apache 2.0 license text beside it.** The generated catalog
+  reproduces description and comment text out of ClickHouse's own system tables, and
+  that text is Apache 2.0 rather than MIT. `NOTICE` records where it comes from and
+  `LICENSES/Apache-2.0.txt` carries the license, so anyone redistributing the extension
+  has what that license asks for. Both ship inside the `.vsix`.
+
+### Fixed
+
+- **The README's license links.** They pointed at `LICENSE.txt`; the file is `LICENSE`.
+
+- **The MIT notice names the author.** It now reads `Copyright (c) 2024-2026 Dmitriy
+  Zaitsev`.
 
 ## [2.5.6] - 2026-10-16
 

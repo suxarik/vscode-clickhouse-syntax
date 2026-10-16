@@ -1,0 +1,73 @@
+<!doctype html><html><head><meta charset="utf-8"><style>*{margin:0;padding:0;box-sizing:border-box}
+html,body{background:#14161B}
+body{
+  font-family:system-ui,-apple-system,"SF Pro Display","Helvetica Neue",sans-serif;
+  -webkit-font-smoothing:antialiased;
+  color:#F2F4F8; overflow:hidden;
+}
+.stage{position:relative;width:100vw;height:100vh;overflow:hidden;
+  background:
+    radial-gradient(120% 140% at 8% 0%, #272C37 0%, rgba(39,44,55,0) 55%),
+    linear-gradient(135deg,#1A1E26 0%,#111318 100%);
+}
+.stage::after{content:"";position:absolute;inset:0;
+  background:linear-gradient(90deg,rgba(255,165,31,0) 60%,rgba(255,122,0,.07) 100%);}
+.logo{border-radius:22%;display:block;flex:none}
+.wordmark{font-weight:700;letter-spacing:-.025em;line-height:1.04;color:#F8FAFC}
+.sub{font-weight:600;color:#FFA51F;letter-spacing:.005em}
+.tag{font-weight:400;color:#99A1B0;letter-spacing:.004em}
+.fine{font-weight:400;color:#5C6472;letter-spacing:.02em}
+.decor{position:absolute;opacity:.07;pointer-events:none}
+.chips{display:flex;gap:10px;flex-wrap:wrap}
+.chip{font-weight:500;color:#C3CAD6;background:rgba(255,255,255,.05);
+  border:1px solid rgba(255,255,255,.09);border-radius:999px;white-space:nowrap}
+
+.logo{box-shadow:0 10px 30px rgba(0,0,0,.45),0 0 0 1px rgba(255,255,255,.08)}
+.fade{-webkit-mask-image:linear-gradient(90deg,#000 0%,#000 42%,transparent 97%)}
+</style></head><body>
+<div class="stage" style="display:flex;flex-direction:column;padding:58px 72px 44px">
+  <div style="display:flex;align-items:center;gap:24px;flex:none">
+    <svg class="logo" width="96" height="96" viewBox="0 0 128 128">
+  <rect width="128" height="128" rx="28" fill="#1E222B"/>
+  <rect x="18" y="22" width="92" height="22" rx="5" fill="#FFCF5C"/>
+  <rect x="18" y="53" width="56" height="22" rx="5" fill="#FFA51F"/>
+  <rect x="83" y="53" width="27" height="22" rx="5" fill="#FFA51F"/>
+  <rect x="18" y="84" width="30" height="22" rx="5" fill="#FF7A00"/>
+  <rect x="57" y="84" width="17" height="22" rx="5" fill="#FF4D2E"/>
+  <rect x="83" y="84" width="18" height="22" rx="5" fill="#FF7A00"/>
+</svg>
+    <div class="wordmark" style="font-size:65px">ClickHouse SQL</div>
+  </div>
+  <div style="flex:1;display:flex;gap:48px;align-items:center;margin-top:30px">
+    <div style="flex:1;min-width:0">
+      <div class="sub" style="font-size:27px">IDE &amp; Runbooks for VS&nbsp;Code</div>
+      <div class="tag" style="font-size:19.5px;margin-top:15px;line-height:1.55">Run, explain and profile ClickHouse queries without leaving the editor. Completions and lints come from a real parser; the catalog comes from ClickHouse's own introspection tables.</div>
+    </div>
+    <div style="flex:none"><svg viewBox="0 0 400 234" width="430" height="252">
+  <g>
+    <rect x="0"   y="0"   width="400" height="36" rx="7" fill="#FFCF5C"/>
+    <rect x="0"   y="48"  width="250" height="36" rx="7" fill="#FFB52E"/>
+    <rect x="262" y="48"  width="138" height="36" rx="7" fill="#FFB52E"/>
+    <rect x="0"   y="96"  width="150" height="36" rx="7" fill="#FF9A14"/>
+    <rect x="162" y="96"  width="88"  height="36" rx="7" fill="#FF9A14"/>
+    <rect x="262" y="96"  width="90"  height="36" rx="7" fill="#FF9A14"/>
+    <rect x="0"   y="144" width="90"  height="36" rx="7" fill="#FF7A00"/>
+    <rect x="102" y="144" width="48"  height="36" rx="7" fill="#FF4D2E"/>
+    <rect x="262" y="144" width="60"  height="36" rx="7" fill="#FF7A00"/>
+    <rect x="0"   y="192" width="50"  height="36" rx="7" fill="#FF6A1A"/>
+    <rect x="102" y="192" width="30"  height="36" rx="7" fill="#FF6A1A"/>
+  </g>
+</svg></div>
+  </div>
+  <div class="chips" style="margin-top:28px;font-size:14.5px;flex:none">
+    <span class="chip" style="padding:9px 17px">Parser-backed editing</span>
+    <span class="chip" style="padding:9px 17px">Query plan visualiser</span>
+    <span class="chip" style="padding:9px 17px">Incident runbooks</span>
+    <span class="chip" style="padding:9px 17px">Cluster &amp; shards</span>
+    <span class="chip" style="padding:9px 17px">dbt &amp; migrations</span>
+  </div>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-top:30px;flex:none">
+    <div class="fine" style="font-size:15px;color:#7B8494">VS&nbsp;Code Marketplace · <span style="color:#FFA51F">SuXarikisme.clickhouse-syntax</span></div>
+    <div class="fine" style="font-size:13px">Independent extension · not affiliated with ClickHouse,&nbsp;Inc.</div>
+  </div>
+</div></body></html>

@@ -1,0 +1,23 @@
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{background:#14161B}
+body{
+  font-family:system-ui,-apple-system,"SF Pro Display","Helvetica Neue",sans-serif;
+  -webkit-font-smoothing:antialiased;
+  color:#F2F4F8; overflow:hidden;
+}
+.stage{position:relative;width:100vw;height:100vh;overflow:hidden;
+  background:
+    radial-gradient(120% 140% at 8% 0%, #272C37 0%, rgba(39,44,55,0) 55%),
+    linear-gradient(135deg,#1A1E26 0%,#111318 100%);
+}
+.stage::after{content:"";position:absolute;inset:0;
+  background:linear-gradient(90deg,rgba(255,165,31,0) 60%,rgba(255,122,0,.07) 100%);}
+.logo{border-radius:22%;display:block;flex:none}
+.wordmark{font-weight:700;letter-spacing:-.025em;line-height:1.04;color:#F8FAFC}
+.sub{font-weight:600;color:#FFA51F;letter-spacing:.005em}
+.tag{font-weight:400;color:#99A1B0;letter-spacing:.004em}
+.fine{font-weight:400;color:#5C6472;letter-spacing:.02em}
+.decor{position:absolute;opacity:.07;pointer-events:none}
+.chips{display:flex;gap:10px;flex-wrap:wrap}
+.chip{font-weight:500;color:#C3CAD6;background:rgba(255,255,255,.05);
+  border:1px solid rgba(255,255,255,.09);border-radius:999px;white-space:nowrap}

@@ -113,9 +113,9 @@ export function readPalette(element: Element = document.documentElement): Palett
         muted: cssValue(styles, '--vscode-descriptionForeground', '#9d9d9d'),
         surface: cssValue(styles, '--vscode-editorWidget-background', '#252526'),
         border: cssValue(styles, '--vscode-panel-border', '#454545'),
-        accent: cssValue(styles, '--vscode-charts-yellow', '#faff69'),
-        // ClickHouse yellow, bright enough to outline a step already red.
-        hot: '#faff69',
+        accent: cssValue(styles, '--vscode-charts-yellow', '#ffcf5c'),
+        // The extension's own amber, bright enough to outline a step already red.
+        hot: '#ffcf5c',
         background: cssValue(styles, '--vscode-editor-background', '#1e1e1e'),
     };
 }

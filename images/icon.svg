@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="Query plan icicle">
+  <rect width="128" height="128" rx="28" fill="#1E222B"/>
+  <rect x="18" y="22" width="92" height="22" rx="5" fill="#FFCF5C"/>
+  <rect x="18" y="53" width="56" height="22" rx="5" fill="#FFA51F"/>
+  <rect x="83" y="53" width="27" height="22" rx="5" fill="#FFA51F"/>
+  <rect x="18" y="84" width="30" height="22" rx="5" fill="#FF7A00"/>
+  <rect x="57" y="84" width="17" height="22" rx="5" fill="#FF4D2E"/>
+  <rect x="83" y="84" width="18" height="22" rx="5" fill="#FF7A00"/>
+</svg>

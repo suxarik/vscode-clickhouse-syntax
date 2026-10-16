@@ -1,9 +1,9 @@
-# ClickHouse SQL — IDE & Runbooks
+![ClickHouse SQL — IDE & Runbooks for VS Code](images/banner.png)
 
 [![Marketplace](https://badgen.net/vs-marketplace/v/SuXarikisme.clickhouse-syntax)](https://marketplace.visualstudio.com/items?itemName=SuXarikisme.clickhouse-syntax)
 [![Installs](https://badgen.net/vs-marketplace/i/SuXarikisme.clickhouse-syntax)](https://marketplace.visualstudio.com/items?itemName=SuXarikisme.clickhouse-syntax)
 [![Downloads](https://badgen.net/vs-marketplace/d/SuXarikisme.clickhouse-syntax)](https://marketplace.visualstudio.com/items?itemName=SuXarikisme.clickhouse-syntax)
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE.txt)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 Write ClickHouse SQL in an editor that understands the dialect, connect to a
 server, run the statement under your cursor, and read the result — without
@@ -382,6 +382,23 @@ silently rewrites a document's language.
 
 ---
 
+## Trademarks
+
+This is an independent, community-built extension. It is **not affiliated with,
+endorsed by, or sponsored by ClickHouse, Inc.**
+
+ClickHouse® is a registered trademark of ClickHouse, Inc. The name is used here
+only to describe what this extension works with. The extension's own icon and
+artwork are original and are not ClickHouse marks.
+
+---
+
 ## License
 
-MIT — see [LICENSE.txt](LICENSE.txt).
+This extension's source code is MIT — see [LICENSE](LICENSE). MIT covers the
+code only; it grants no rights in any third-party trademark.
+
+The generated catalog under `catalog/` reproduces description and comment text
+from ClickHouse's own system tables, which is **Apache 2.0** licensed, not MIT.
+See [NOTICE](NOTICE) for the attribution and
+[LICENSES/Apache-2.0.txt](LICENSES/Apache-2.0.txt) for the license text.
