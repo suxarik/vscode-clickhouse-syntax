@@ -2,7 +2,7 @@
   "name": "clickhouse-syntax",
   "displayName": "ClickHouse SQL \u2014 IDE & Runbooks",
   "description": "Run, explain and profile ClickHouse queries without leaving the editor. Result grid, incident runbooks, dbt models, schema migrations.",
-  "version": "2.4.6",
+  "version": "2.4.7",
   "publisher": "SuXarikisme",
   "icon": "images/clickhouse.png",
   "engines": {
@@ -308,6 +308,16 @@
         "title": "Analyze Cell",
         "category": "ClickHouse",
         "icon": "$(pulse)"
+      },
+      {
+        "command": "clickhouse.adviseOnSchema",
+        "title": "Advise on Schema",
+        "category": "ClickHouse"
+      },
+      {
+        "command": "clickhouse.forgetSchemaObservations",
+        "title": "Forget Analysed Query Shapes",
+        "category": "ClickHouse"
       }
     ],
     "menus": {

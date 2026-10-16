@@ -2,7 +2,7 @@
 
 All notable changes to this extension will be documented in this file.
 
-## [2.4.6] - 2026-10-16
+## [2.4.7] - 2026-10-16
 
 ### Added
 
@@ -71,6 +71,24 @@ All notable changes to this extension will be documented in this file.
   Positions belong to the document version that ran, and the moment that document is
   edited they are dropped — a squiggle confidently pointing at the wrong word is worse
   than no squiggle.
+
+  **Advice about the table, not just the query.** "ClickHouse: Advise on Schema" reads
+  what several analysed queries had in common and writes out what to consider — a skip
+  index, or a key that leads with the column they all filter on. Two queries before it
+  says anything, since one proves nothing, and nothing is ever applied: the DDL is
+  written as something to read, with the migration it implies spelled out beside it.
+
+  It keeps column names, a pruning fraction and a row count. Never the query, never a
+  literal, never a result — a tool that quietly accumulated a history of production
+  queries would be indefensible, and what is stored makes that impossible rather than
+  merely discouraged. It lives in the extension's own storage rather than in settings,
+  so it cannot sync or reach a repository, it is forgotten after a month, and
+  "Forget Analysed Query Shapes" clears it on demand.
+
+  A join puts one table's filters in another table's query, so a suggestion is only made
+  for a column the table actually has. Without that check it proposed an index on
+  `users.status` — a column `users` does not have — which is DDL that fails rather than
+  advice.
 
   The pane opens itself only for something important. A panel that springs open for every
   observation is a panel people close and never open again, so the quieter ones are

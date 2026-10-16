@@ -124,7 +124,12 @@ export function activate(context: vscode.ExtensionContext) {
         ...registerNotebook(connections, queryRunner, analysisCache, context.extensionUri),
         ...registerMigrationCommands(connections, schemaManager),
         ...registerPerformanceCommand(schemaManager, catalog, analysisCache),
-        ...registerAnalyzeCommands(connections, analysisCache, new PlanPanel(context.extensionUri)),
+        ...registerAnalyzeCommands(
+            connections,
+            analysisCache,
+            new PlanPanel(context.extensionUri),
+            context.globalState
+        ),
         ...registerLanguageModelTools(connections),
         connections.onDidChangeActiveProfile(() => explorer.reset())
     );

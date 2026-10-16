@@ -16,19 +16,29 @@ import { buildPlanGraph } from './graph';
 import { collectProfile } from './profile';
 import { PlanPanel } from './panel';
 import { PLAN_MIME, PlanPayload } from './protocol';
+import { Finding } from '../advice/types';
 import { parsePlan, summarizePlan } from '../client/explain';
 import { advise } from '../advice/engine';
 import { enrichFindings } from '../advice/enrich';
 import { AdviceDiagnostics, AdviceSource } from '../advice/diagnostics';
+import {
+    observe,
+    summariseTable,
+    Observation,
+    ObservationMemento,
+    ObservationStore,
+} from '../advice/observations';
 
 export function registerAnalyzeCommands(
     connections: ConnectionManager,
     analysisCache: AnalysisCache,
-    panel: PlanPanel
+    panel: PlanPanel,
+    memento: ObservationMemento
 ): vscode.Disposable[] {
     /** Abandons the advice of a plan that has been replaced. */
     let adviceRun: AbortController | undefined;
     const diagnostics = new AdviceDiagnostics();
+    const observations = new ObservationStore(memento);
 
     /**
      * Advice runs after the plan is on screen and is never awaited before it.
@@ -77,6 +87,7 @@ export function registerAnalyzeCommands(
         if (run.signal.aborted) return;
 
         panel.post({ type: 'findings', findings: enriched, replace: true });
+        void recordWhatWasSeen(payload, program, enriched);
         // Only now, so the squiggle carries the enriched wording rather than
         // the first draft of it.
         if (where && source) diagnostics.show(where.document, source, enriched);
@@ -85,6 +96,79 @@ export function registerAnalyzeCommands(
     return [
         panel,
         diagnostics,
+
+        vscode.commands.registerCommand('clickhouse.adviseOnSchema', async () => {
+            const tables = observations.tables();
+            if (tables.length === 0) {
+                vscode.window.showInformationMessage(
+                    'ClickHouse: analyze a few queries first — schema advice comes from what they had in common.'
+                );
+                return;
+            }
+
+            const client = await connections.client();
+            if (!client) {
+                vscode.window.showWarningMessage('ClickHouse: no connection selected.');
+                return;
+            }
+
+            const keys = new Map<string, string>();
+            const columns = new Map<string, string[]>();
+            try {
+                const parameters = { tables: `[${tables.map(name => `'${name}'`).join(',')}]` };
+                const answer = await client.query(
+                    "SELECT concat(database, '.', name) AS qualified, sorting_key FROM system.tables " +
+                        'WHERE concat(database, \'.\', name) IN ({tables:Array(String)})',
+                    { readOnly: true, maxExecutionTime: 15, parameters }
+                );
+                for (const row of answer.rows) keys.set(String(row[0] ?? ''), String(row[1] ?? ''));
+
+                // Which columns each table has, so nothing is suggested for a
+                // column that lives on the other side of a join.
+                const columnRows = await client.query(
+                    "SELECT concat(database, '.', table) AS qualified, name FROM system.columns " +
+                        'WHERE concat(database, \'.\', table) IN ({tables:Array(String)})',
+                    { readOnly: true, maxExecutionTime: 15, parameters }
+                );
+                for (const row of columnRows.rows) {
+                    const table = String(row[0] ?? '');
+                    columns.set(table, [...(columns.get(table) ?? []), String(row[1] ?? '')]);
+                }
+            } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                vscode.window.showWarningMessage(`ClickHouse: could not read the table keys — ${message}`);
+                return;
+            }
+
+            const all = observations.all();
+            const advice = tables
+                .map(table => summariseTable(table, all, keys.get(table) ?? '', columns.get(table)))
+                .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
+
+            if (advice.length === 0) {
+                vscode.window.showInformationMessage(
+                    'ClickHouse: nothing to suggest — the indexes are doing their job on what has been analysed.'
+                );
+                return;
+            }
+
+            const content = [
+                '-- ClickHouse: what several analysed queries had in common.',
+                '--',
+                '-- Nothing here has been applied. Read it, then run what you agree with.',
+                '-- Only column names were kept to work this out: no query text, no values.',
+                '',
+                ...advice.map(entry => `${entry.ddl}\n\n-- ${entry.note}\n`),
+            ].join('\n');
+
+            const document = await vscode.workspace.openTextDocument({ content, language: 'clickhouse' });
+            await vscode.window.showTextDocument(document, { preview: false });
+        }),
+
+        vscode.commands.registerCommand('clickhouse.forgetSchemaObservations', async () => {
+            await observations.forget();
+            vscode.window.showInformationMessage('ClickHouse: forgot what the analysed queries had in common.');
+        }),
 
         vscode.commands.registerCommand('clickhouse.analyzeQuery', async () => {
             const editor = vscode.window.activeTextEditor;
@@ -215,6 +299,40 @@ export function registerAnalyzeCommands(
     function readable(sql: string): boolean {
         const parsed = parse(sql).program.statements[0];
         return Boolean(parsed) && classifyStatement(parsed).effect === 'read';
+    }
+
+    /**
+     * Keep the shape of what was seen, so a habit can be spotted later.
+     *
+     * Column names, a pruning fraction and a row count. Never the query, never
+     * a literal, never a result.
+     */
+    async function recordWhatWasSeen(
+        payload: PlanPayload,
+        program: ReturnType<typeof parse>['program'],
+        findings: Finding[]
+    ): Promise<void> {
+        const plan = summarizePlan(parsePlan(payload.explain));
+        const seen: Observation[] = [];
+
+        for (const finding of findings) {
+            if (finding.ruleId !== 'no-index-pruning' || finding.subject?.kind !== 'table') continue;
+
+            const index = plan.indexes.find(usage => usage.table === finding.subject?.name);
+            const total = index?.granulesTotal ?? 0;
+            const selected = index?.granulesSelected ?? total;
+
+            seen.push(
+                observe({
+                    table: finding.subject.name,
+                    prunedFraction: total > 0 ? 1 - selected / total : 0,
+                    rowsRead: payload.summary?.read_rows ?? 0,
+                    program,
+                })
+            );
+        }
+
+        await observations.record(seen);
     }
 
     async function analyze(
