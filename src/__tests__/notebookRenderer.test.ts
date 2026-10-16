@@ -7,8 +7,12 @@
  * for the webview runs unmodified in the notebook host. So these drive the real
  * `GridView` through the real renderer, and assert on the DOM it produces.
  */
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import { activate } from '../notebook/renderer';
-import { CellResult } from '../notebook/controller';
+import { PLAN_MIME } from '../explain/protocol';
+import { buildPlanGraph, ProcessorRow } from '../explain/graph';
+import { CellResult, RESULT_MIME } from '../notebook/controller';
 
 function result(overrides: Partial<CellResult> = {}): CellResult {
     return {
@@ -32,7 +36,7 @@ function render(value: CellResult, context: Parameters<typeof activate>[0] = {})
     const renderer = activate(context);
     const element = document.createElement('div');
     document.body.appendChild(element);
-    renderer.renderOutputItem({ id: 'out-1', json: () => value }, element);
+    renderer.renderOutputItem({ id: 'out-1', mime: RESULT_MIME, json: () => value }, element);
     return { element, renderer };
 }
 
@@ -83,8 +87,8 @@ describe('rendering an output', () => {
         const renderer = activate({});
         const element = document.createElement('div');
         document.body.appendChild(element);
-        renderer.renderOutputItem({ id: 'out-1', json: () => result() }, element);
-        renderer.renderOutputItem({ id: 'out-1', json: () => result() }, element);
+        renderer.renderOutputItem({ id: 'out-1', mime: RESULT_MIME, json: () => result() }, element);
+        renderer.renderOutputItem({ id: 'out-1', mime: RESULT_MIME, json: () => result() }, element);
         expect(element.querySelectorAll('.ch-results')).toHaveLength(1);
     });
 
@@ -150,5 +154,36 @@ describe('what crosses back to the extension host', () => {
         const { element } = render(result(), { postMessage });
         element.querySelector<HTMLElement>('.ch-cancel')?.click();
         expect(postMessage).not.toHaveBeenCalled();
+    });
+});
+
+
+describe('a plan in a runbook cell', () => {
+    it('draws the plan view instead of the grid', () => {
+        const rows = readFileSync(join(__dirname, 'fixtures', 'processors-profile.jsonl'), 'utf8')
+            .split('\n')
+            .filter(Boolean)
+            .map(line => JSON.parse(line) as ProcessorRow);
+
+        const element = document.createElement('div');
+        document.body.appendChild(element);
+        activate({}).renderOutputItem(
+            {
+                id: 'plan-1',
+                mime: PLAN_MIME,
+                json: () => ({
+                    sql: 'SELECT 1',
+                    profile: 'local',
+                    explain: 'ReadFromMergeTree (default.events)',
+                    graph: buildPlanGraph(rows),
+                    timedOut: false,
+                }),
+            },
+            element
+        );
+
+        expect(element.querySelector('.ch-plan')).not.toBeNull();
+        expect(element.querySelector('.ch-results')).toBeNull();
+        expect(element.querySelectorAll('.ch-cell').length).toBeGreaterThan(0);
     });
 });

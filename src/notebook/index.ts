@@ -27,6 +27,38 @@ interface RendererRequest {
     suggestedName?: string;
 }
 
+/** What the plan view sends back when someone saves the drawing. */
+interface ImageRequest {
+    type: 'exportImage';
+    format: 'svg' | 'png' | 'jpg';
+    data: string;
+    suggestedName?: string;
+}
+
+function isImageRequest(message: unknown): message is ImageRequest {
+    if (typeof message !== 'object' || message === null) return false;
+    const candidate = message as Partial<ImageRequest>;
+    return candidate.type === 'exportImage' && typeof candidate.data === 'string';
+}
+
+async function handleImageRequest(request: ImageRequest): Promise<void> {
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+    const uri = await vscode.window.showSaveDialog({
+        filters: { [request.format.toUpperCase()]: [request.format] },
+        defaultUri: vscode.Uri.file(`${request.suggestedName ?? 'clickhouse-plan'}-${stamp}.${request.format}`),
+    });
+    if (!uri) return;
+
+    // SVG crosses as markup; the raster formats cross as a data URL.
+    const bytes =
+        request.format === 'svg'
+            ? Buffer.from(request.data, 'utf8')
+            : Buffer.from(request.data.slice(request.data.indexOf(',') + 1), 'base64');
+
+    await vscode.workspace.fs.writeFile(uri, bytes);
+    vscode.window.showInformationMessage(`ClickHouse: plan saved to ${uri.fsPath}`);
+}
+
 function isRendererRequest(message: unknown): message is RendererRequest {
     if (typeof message !== 'object' || message === null) return false;
     const candidate = message as Partial<RendererRequest>;
@@ -73,7 +105,8 @@ export function registerNotebook(
         }),
         controllers,
         messaging.onDidReceiveMessage(event => {
-            if (isRendererRequest(event.message)) void handleRendererRequest(event.message);
+            if (isImageRequest(event.message)) void handleImageRequest(event.message);
+            else if (isRendererRequest(event.message)) void handleRendererRequest(event.message);
         }),
 
         vscode.commands.registerCommand('clickhouse.openAsNotebook', async () => {
