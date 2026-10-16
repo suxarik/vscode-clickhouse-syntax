@@ -47,9 +47,19 @@ to `settings.json`.
 - **64-bit integers stay exact.** They cross the wire as strings, because
   `JSON.parse` rounds anything past 2⁵³. Sorting uses `BigInt`, so the order is
   right too.
-- **Browse the schema** in the explorer: databases, tables, columns with types,
-  engines, row counts, part counts, dictionaries. It says so when it is showing
-  a cache whose refresh failed — a stale schema never passes for a live one.
+- **Browse the schema** in the explorer: the server, its databases, their
+  tables and columns with types, row counts, part counts, dictionaries. It says
+  so when it is showing a cache whose refresh failed — a stale schema never
+  passes for a live one.
+- **The tree says what it is connected to.** One node or a cluster, with its
+  own icon. Each table carries an icon for its engine, so a
+  `ReplacingMergeTree` that will need `FINAL`, a view that stores nothing and a
+  table whose rows live in S3 are told apart while scanning rather than read
+  one at a time. A profile allowed to write is marked in ClickHouse orange —
+  worth knowing before you type, not after a dialog appears.
+- **Preview Rows opens the query**, then runs it. A preview is something you
+  want to change — add a `WHERE`, raise the limit — so the statement arrives as
+  SQL you can edit and run again, not as a result with the query hidden.
 - **Query history** with timings and re-run, and **pin** the queries worth
   keeping: pinned entries survive the cap and survive clearing.
 
@@ -117,6 +127,29 @@ readable, and any `.sql` file opens as one.
   a value typed into a box can never be an injection.
 
 Full details in [docs/runbooks.md](docs/runbooks.md).
+
+### 🖧 Clusters
+
+**ClickHouse: Show Cluster** draws shards across and replicas down, with the
+findings beside it: a host that did not answer, a shard short of replicas, a
+read-only replica and how long it has been one, replication lag, a queue that
+is not draining, lost parts, an expired Keeper session.
+
+And **where the rows actually are**. A sharding key is a promise about
+distribution that nothing checks — sharding by a column with three distinct
+values across two shards puts 66.7% of the rows on one of them, and the cluster
+is then only as fast as its busiest node. No single node can see it; each looks
+perfectly healthy holding whatever share it was given. Replicas of one shard
+are compared with each other too, since they should hold the same rows.
+
+Every box is the same size, because a cluster is a map rather than a
+measurement. The bar inside each box is the measurement.
+
+Analyze knows about shards too: when a query was distributed, the findings say
+what each shard was asked to read and whether that was even.
+
+Everything here reads. A cluster is looked at during an incident, which is
+exactly when a tool should not be able to make anything worse.
 
 ### 🧱 dbt and migrations
 
@@ -273,13 +306,16 @@ catalog came from.
 
 ## Commands
 
-41 commands, all under **ClickHouse:** in the palette. The ones worth knowing:
+47 commands, all under **ClickHouse:** in the palette. The ones worth knowing:
 
 | Command | What it does |
 | --- | --- |
 | Add Connection | Guided setup; tests the result |
 | Run Query · Run Statement at Cursor | `Ctrl+Enter` |
 | Explain Query | `Ctrl+Shift+Enter` — the plan, without running the query |
+| Analyze Query | Runs it and draws where the time went |
+| Show Cluster | Shards, replicas, and where the data sits |
+| Advise on Schema | What several analysed queries had in common |
 | Cancel Query | Sends `KILL QUERY` |
 | Profile Last Query | Real counters from `system.query_log` |
 | Show Query History | Re-run, and pin what matters |
@@ -293,7 +329,7 @@ catalog came from.
 
 ## Settings
 
-48 settings, all under `clickhouse.` in the Settings UI. The ones people change:
+49 settings, all under `clickhouse.` in the Settings UI. The ones people change:
 
 | Setting | Default | What it controls |
 | --- | --- | --- |
