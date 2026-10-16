@@ -575,6 +575,35 @@ describe('marking a connection that can write', () => {
         expect(readOnly.color).toBeUndefined();
     });
 
+    const column: ExplorerNode = {
+        kind: 'column',
+        database: 'demo',
+        table: 'events',
+        column: { name: 'user_id', type: 'UInt64' },
+    };
+
+    it('marks every level that belongs to the connection', () => {
+        // Server, database, table. Half a tree in orange reads as a rendering
+        // fault rather than as a warning about the connection.
+        const writable = explorerOn(true);
+        for (const node of [{ kind: 'server' } as ExplorerNode, { kind: 'database', name: 'demo' } as ExplorerNode, table]) {
+            const icon = writable.getTreeItem(node).iconPath as vscode.ThemeIcon;
+            expect((icon.color as vscode.ThemeColor | undefined)?.id).toBe('clickhouse.writable');
+        }
+    });
+
+    it('leaves the columns alone, which are not something you connect to', () => {
+        const icon = explorerOn(true).getTreeItem(column).iconPath as vscode.ThemeIcon;
+        expect(icon.color).toBeUndefined();
+    });
+
+    it('leaves every level plain when the connection may not write', () => {
+        const readOnly = explorerOn(false);
+        for (const node of [{ kind: 'server' } as ExplorerNode, { kind: 'database', name: 'demo' } as ExplorerNode, table, column]) {
+            expect((readOnly.getTreeItem(node).iconPath as vscode.ThemeIcon).color).toBeUndefined();
+        }
+    });
+
     it('says so in words as well as colour', () => {
         const item = explorerOn(true).getTreeItem({ kind: 'server' });
         expect(String(item.description)).toContain('writable');

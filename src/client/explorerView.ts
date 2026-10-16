@@ -152,9 +152,13 @@ export class ExplorerProvider implements vscode.TreeDataProvider<ExplorerNode> {
      * The colour a writable connection is marked in.
      *
      * VS Code will not colour a tree item's description, so the icon carries
-     * it: on a profile that may write, every engine icon and the server itself
-     * turn ClickHouse orange. It is worth knowing before anyone types, not
-     * after a confirmation dialog appears.
+     * it: on a profile that may write, the server, its databases and their
+     * tables turn ClickHouse orange. It is worth knowing before anyone types,
+     * not after a confirmation dialog appears.
+     *
+     * Columns are deliberately left alone. They are not something a connection
+     * grants access to, and marking every row of an expanded tree reads as a
+     * rendering fault rather than as a warning.
      */
     private writableTint(): vscode.ThemeColor | undefined {
         return this.connections.activeProfile()?.allowWrite === true
@@ -191,7 +195,7 @@ export class ExplorerProvider implements vscode.TreeDataProvider<ExplorerNode> {
 
             case 'database': {
                 const item = new vscode.TreeItem(node.name, vscode.TreeItemCollapsibleState.Collapsed);
-                item.iconPath = new vscode.ThemeIcon('database');
+                item.iconPath = new vscode.ThemeIcon('database', this.writableTint());
                 item.contextValue = 'clickhouse.database';
                 const tables = this.schemaManager.getTables(node.name).length;
                 item.description = `${tables} table${tables === 1 ? '' : 's'}`;

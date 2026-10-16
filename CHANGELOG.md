@@ -2,7 +2,7 @@
 
 All notable changes to this extension will be documented in this file.
 
-## [2.5.4] - 2026-10-16
+## [2.5.5] - 2026-10-16
 
 ### Added
 
@@ -18,9 +18,11 @@ All notable changes to this extension will be documented in this file.
   It runs last, after the plan and the rest of the findings, and costs nothing on a
   single node: a query that ran in one place returns nothing and nothing is shown.
 
-- **The explorer says when a connection may write.** On a profile with `allowWrite`,
-  every engine icon and the server itself turn ClickHouse orange, and the server says
-  "writable" in words beside it. Read-only profiles are left plain, which is the default
+- **The explorer says when a connection may write.** On a profile with `allowWrite`, the
+  server, its databases and their tables turn ClickHouse orange, and the server says
+  "writable" in words beside it. Columns are left alone: they are not something a
+  connection grants access to, and marking every row of an expanded tree reads as a
+  rendering fault rather than as a warning. Read-only profiles are left plain, which is the default
   and the quiet case. The colour is contributed as `clickhouse.writable`, so a theme can
   change it.
 
