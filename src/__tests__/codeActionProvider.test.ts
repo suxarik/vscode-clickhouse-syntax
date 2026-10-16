@@ -3,6 +3,7 @@
  */
 import * as vscode from 'vscode';
 import { computeCodeActions } from '../providers/codeActionProvider';
+import { ADVICE_SOURCE } from '../advice/diagnostics';
 import { computeDiagnostics } from '../providers/diagnosticProvider';
 import { SchemaManager } from '../schemaManager';
 import { makeSchemaManager, makeConfig, makeCatalog, docAt, editsOf } from './helpers';
@@ -137,5 +138,49 @@ describe('edits', () => {
             expect(action.edit).toBeDefined();
             expect(action.command).toBeUndefined();
         }
+    });
+});
+
+describe('fixes offered for advice', () => {
+    const adviceDiagnostic = (range: vscode.Range): vscode.Diagnostic => {
+        const diagnostic = new vscode.Diagnostic(range, 'uniqExact accounts for most of this query');
+        diagnostic.source = ADVICE_SOURCE;
+        diagnostic.code = 'exact-distinct-cost';
+        return diagnostic;
+    };
+
+    it('offers to swap uniqExact for uniq', () => {
+        const sql = 'SELECT device, uniqExact(user_id) FROM events GROUP BY device';
+        const { document } = docAt(sql);
+        const start = sql.indexOf('uniqExact');
+        const range = new vscode.Range(document.positionAt(start), document.positionAt(start + 9));
+
+        const actions = computeCodeActions(
+            document,
+            range,
+            { diagnostics: [adviceDiagnostic(range)], only: undefined, triggerKind: 1 } as unknown as vscode.CodeActionContext,
+            schemaManager,
+            makeConfig()
+        );
+
+        const fix = actions.find(action => action.title.includes('uniq'));
+        expect(fix).toBeDefined();
+        expect(editsOf(fix?.edit)[0].newText).toBe('uniq');
+    });
+
+    it('does not offer it for advice about something else entirely', () => {
+        const sql = 'SELECT count() FROM events';
+        const { document } = docAt(sql);
+        const range = new vscode.Range(document.positionAt(7), document.positionAt(12));
+
+        const actions = computeCodeActions(
+            document,
+            range,
+            { diagnostics: [adviceDiagnostic(range)], only: undefined, triggerKind: 1 } as unknown as vscode.CodeActionContext,
+            schemaManager,
+            makeConfig()
+        );
+
+        expect(actions.find(action => action.title.includes('uniq'))).toBeUndefined();
     });
 });

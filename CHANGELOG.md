@@ -2,7 +2,7 @@
 
 All notable changes to this extension will be documented in this file.
 
-## [2.4.5] - 2026-10-16
+## [2.4.6] - 2026-10-16
 
 ### Added
 
@@ -62,6 +62,15 @@ All notable changes to this extension will be documented in this file.
   for findings that want one — "the index removed nothing" appears immediately and
   upgrades itself to "sorted by (user_id, created_at)" when the key arrives. One query
   for all of them, and the finding stands on its own if it fails.
+
+  The same findings are underlined in the query itself, with the measurement in the
+  hover and a quick fix where the rewrite is mechanical — uniqExact to uniq, and nothing
+  that needs a judgement about the answer. Measurements carry no source positions, so a
+  finding is placed by what it is about: the parse tree is asked where `uniqExact` or
+  `demo.orders` is, which is also what keeps `SELECT 'uniqExact'` from being underlined.
+  Positions belong to the document version that ran, and the moment that document is
+  edited they are dropped — a squiggle confidently pointing at the wrong word is worse
+  than no squiggle.
 
   The pane opens itself only for something important. A panel that springs open for every
   observation is a panel people close and never open again, so the quieter ones are

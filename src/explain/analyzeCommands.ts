@@ -19,6 +19,7 @@ import { PLAN_MIME, PlanPayload } from './protocol';
 import { parsePlan, summarizePlan } from '../client/explain';
 import { advise } from '../advice/engine';
 import { enrichFindings } from '../advice/enrich';
+import { AdviceDiagnostics, AdviceSource } from '../advice/diagnostics';
 
 export function registerAnalyzeCommands(
     connections: ConnectionManager,
@@ -27,21 +28,33 @@ export function registerAnalyzeCommands(
 ): vscode.Disposable[] {
     /** Abandons the advice of a plan that has been replaced. */
     let adviceRun: AbortController | undefined;
+    const diagnostics = new AdviceDiagnostics();
 
     /**
      * Advice runs after the plan is on screen and is never awaited before it.
      * The drawing is what was asked for; findings are a second opinion, and a
      * second opinion that delays the first is worse than none.
      */
-    async function adviseInBackground(payload: PlanPayload): Promise<void> {
+    async function adviseInBackground(
+        payload: PlanPayload,
+        where?: { document: vscode.TextDocument; offset: number }
+    ): Promise<void> {
         adviceRun?.abort();
         const run = new AbortController();
         adviceRun = run;
 
+        const program = parse(payload.sql).program;
+        const source: AdviceSource | undefined = where && {
+            uri: where.document.uri,
+            version: where.document.version,
+            offset: where.offset,
+            program,
+        };
+
         const found = await advise(
             {
                 sql: payload.sql,
-                program: parse(payload.sql).program,
+                program,
                 graph: payload.graph,
                 plan: summarizePlan(parsePlan(payload.explain)),
                 summary: payload.summary,
@@ -61,11 +74,17 @@ export function registerAnalyzeCommands(
         if (!client || run.signal.aborted) return;
 
         const enriched = await enrichFindings(found, client, { signal: run.signal });
-        if (!run.signal.aborted) panel.post({ type: 'findings', findings: enriched, replace: true });
+        if (run.signal.aborted) return;
+
+        panel.post({ type: 'findings', findings: enriched, replace: true });
+        // Only now, so the squiggle carries the enriched wording rather than
+        // the first draft of it.
+        if (where && source) diagnostics.show(where.document, source, enriched);
     }
 
     return [
         panel,
+        diagnostics,
 
         vscode.commands.registerCommand('clickhouse.analyzeQuery', async () => {
             const editor = vscode.window.activeTextEditor;
@@ -76,7 +95,10 @@ export function registerAnalyzeCommands(
                 vscode.window.showInformationMessage('ClickHouse: nothing to analyze at the cursor.');
                 return;
             }
-            await analyze(target.sql);
+            await analyze(target.sql, {
+                document: editor.document,
+                offset: target.range ? editor.document.offsetAt(target.range.start) : 0,
+            });
         }),
 
         // A runbook cell draws its plan inline, in the cell's own output, so an
@@ -136,7 +158,12 @@ export function registerAnalyzeCommands(
             const document = await vscode.workspace.openTextDocument(uri);
             const position = document.positionAt(offset);
             const target = resolveTarget(document, new vscode.Selection(position, position), analysisCache);
-            if (target) await analyze(target.sql);
+            if (target) {
+                await analyze(target.sql, {
+                    document,
+                    offset: target.range ? document.offsetAt(target.range.start) : offset,
+                });
+            }
         }),
     ];
 
@@ -190,7 +217,10 @@ export function registerAnalyzeCommands(
         return Boolean(parsed) && classifyStatement(parsed).effect === 'read';
     }
 
-    async function analyze(statement: string): Promise<void> {
+    async function analyze(
+        statement: string,
+        where?: { document: vscode.TextDocument; offset: number }
+    ): Promise<void> {
         const sql = statement.replace(/;\s*$/, '');
         if (!readable(sql)) {
             vscode.window.showWarningMessage(
@@ -211,7 +241,7 @@ export function registerAnalyzeCommands(
                         panel.post({ type: 'error', message: built });
                     } else {
                         panel.showPlan(built);
-                        void adviseInBackground(built).catch(error =>
+                        void adviseInBackground(built, where).catch(error =>
                             console.error('ClickHouse: advice failed', error)
                         );
                     }
