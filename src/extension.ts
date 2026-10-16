@@ -16,6 +16,10 @@ import { Catalog, CATALOG_VERSION, CATALOG_GENERATED_AT, CATALOG_COUNTS } from '
 import { AnalysisCache } from './analysis';
 import { RULES } from './lint/engine';
 import { ConnectionManager } from './client/connectionManager';
+import { registerLanguageModelTools } from './lm/tools';
+import { PlanPanel } from './explain/panel';
+import { registerAnalyzeCommands } from './explain/analyzeCommands';
+import { registerClusterCommands } from './cluster/commands';
 import { registerConnectionCommands } from './client/commands';
 import { registerConnectionSetupCommands } from './client/connectionSetup';
 import { registerDiagnosticsCommand } from './client/diagnostics';
@@ -114,12 +118,21 @@ export function activate(context: vscode.ExtensionContext) {
         schemaSync,
         liveDiagnostics,
         treeView,
-        ...registerExplorerCommands(explorer, queryRunner, analysisCache, schemaSync),
+        explorer,
+        ...registerExplorerCommands(explorer, queryRunner, analysisCache, schemaSync, connections),
         ...registerExplainCommands(connections, analysisCache, explainProvider),
         ...registerHistoryCommands(queryHistory, queryRunner, connections, analysisCache, validator),
         ...registerNotebook(connections, queryRunner, analysisCache, context.extensionUri),
         ...registerMigrationCommands(connections, schemaManager),
         ...registerPerformanceCommand(schemaManager, catalog, analysisCache),
+        ...registerAnalyzeCommands(
+            connections,
+            analysisCache,
+            new PlanPanel(context.extensionUri),
+            context.globalState
+        ),
+        ...registerClusterCommands(connections, context.extensionUri),
+        ...registerLanguageModelTools(connections),
         connections.onDidChangeActiveProfile(() => explorer.reset())
     );
 

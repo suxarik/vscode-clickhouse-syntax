@@ -11,8 +11,8 @@ import * as path from 'node:path';
 
 interface Manifest {
     contributes: {
-        commands: Array<{ command: string; title: string; category?: string }>;
-        menus: Record<string, Array<{ command?: string; when?: string }>>;
+        commands: Array<{ command: string; title: string; category?: string; icon?: string }>;
+        menus: Record<string, Array<{ command?: string; when?: string; group?: string }>>;
         walkthroughs?: Array<{
             id: string;
             title: string;
@@ -154,6 +154,40 @@ describe('contributed settings', () => {
             expect({ key, described: Boolean(described.description ?? described.markdownDescription) }).toMatchObject(
                 { described: true }
             );
+        }
+    });
+});
+
+describe('menu contributions', () => {
+    const commands = new Map(manifest.contributes.commands.map(command => [command.command, command]));
+    const itemMenus = manifest.contributes.menus['view/item/context'] ?? [];
+
+    it('gives every inline action an icon, or it draws as nothing at all', () => {
+        // An inline group is a button on the row, drawn from the command's
+        // icon. Without one there is nothing to click, and the action is
+        // invisible rather than merely ugly.
+        const invisible = itemMenus
+            .filter(entry => entry.group === 'inline')
+            .map(entry => entry.command)
+            .filter(command => command && !commands.get(command)?.icon);
+
+        expect(invisible).toEqual([]);
+    });
+
+    it('puts something in the right-click menu for a cluster, not only on hover', () => {
+        const inContextMenu = itemMenus.filter(
+            entry => entry.command === 'clickhouse.showCluster' && entry.group !== 'inline'
+        );
+        expect(inContextMenu.length).toBeGreaterThan(0);
+        expect(inContextMenu[0].when).toContain('clickhouse.cluster');
+    });
+
+    it('points every menu entry at a command that exists', () => {
+        for (const menu of Object.values(manifest.contributes.menus)) {
+            for (const entry of menu) {
+                if (!entry.command) continue;
+                expect(commands.has(entry.command)).toBe(true);
+            }
         }
     });
 });

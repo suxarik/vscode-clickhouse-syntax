@@ -6,6 +6,7 @@ import { AnalysisCache } from '../analysis';
 import { ExplorerNode, ExplorerProvider, qualifiedName } from './explorerView';
 import { QueryRunner } from './queryRunner';
 import { SchemaSync } from './schemaSync';
+import { ConnectionManager } from './connectionManager';
 
 /** Insert text at the cursor of the last active editor, or open a scratch file. */
 async function insertOrOpen(text: string): Promise<void> {
@@ -40,7 +41,8 @@ export function registerExplorerCommands(
     explorer: ExplorerProvider,
     runner: QueryRunner,
     analysisCache: AnalysisCache,
-    schemaSync: SchemaSync
+    schemaSync: SchemaSync,
+    connections: ConnectionManager
 ): vscode.Disposable[] {
     return [
         vscode.commands.registerCommand('clickhouse.refreshExplorer', async () => {
@@ -49,18 +51,60 @@ export function registerExplorerCommands(
             explorer.refresh();
         }),
 
+        // A preview is a query someone will want to change — add a WHERE, raise
+        // the limit, pick columns instead of every one. Running it with the
+        // text hidden makes the obvious next step impossible, so the statement
+        // is opened as SQL first and then run. Opened that way it inherits
+        // everything the editor already does: highlighting, completion, the
+        // linter, and Run, Explain and Analyze above the statement.
         vscode.commands.registerCommand('clickhouse.previewTable', async (node: ExplorerNode) => {
             if (node?.kind !== 'table') return;
-            await runGenerated(runner, analysisCache, previewStatement(node.database, node.table.name));
+
+            const sql = previewStatement(node.database, node.table.name);
+            const document = await vscode.workspace.openTextDocument({
+                content: `${sql}\n`,
+                language: 'clickhouse',
+            });
+            // Not a preview tab: that one is replaced by the next thing opened,
+            // which would take the query away as soon as anything else is clicked.
+            await vscode.window.showTextDocument(document, { preview: false });
+
+            await runGenerated(runner, analysisCache, sql);
         }),
 
+        // The answer is a statement, not a result. Running it through the grid
+        // puts a dozen lines of DDL in one cell, where the line breaks that
+        // make it readable are exactly what a cell cannot show.
         vscode.commands.registerCommand('clickhouse.showCreateTable', async (node: ExplorerNode) => {
             if (node?.kind !== 'table') return;
-            await runGenerated(
-                runner,
-                analysisCache,
-                `SHOW CREATE TABLE ${qualifiedName(node.database, node.table.name)}`
-            );
+
+            const client = await connections.client();
+            if (!client) {
+                vscode.window.showWarningMessage('ClickHouse: no connection selected.');
+                return;
+            }
+
+            const name = qualifiedName(node.database, node.table.name);
+            try {
+                const result = await client.query(`SHOW CREATE TABLE ${name}`, {
+                    readOnly: true,
+                    maxExecutionTime: 15,
+                });
+                const ddl = String(result.rows[0]?.[0] ?? '').trim();
+                if (!ddl) {
+                    vscode.window.showInformationMessage(`ClickHouse: ${name} returned no definition.`);
+                    return;
+                }
+
+                const document = await vscode.workspace.openTextDocument({
+                    content: `${ddl}\n`,
+                    language: 'clickhouse',
+                });
+                await vscode.window.showTextDocument(document, { preview: false });
+            } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                vscode.window.showErrorMessage(`ClickHouse: could not read ${name} — ${message}`);
+            }
         }),
 
         vscode.commands.registerCommand('clickhouse.copyQualifiedName', async (node: ExplorerNode) => {

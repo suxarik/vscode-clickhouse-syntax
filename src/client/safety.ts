@@ -22,11 +22,17 @@ export interface StatementSummary {
 /** Leading keywords of statements the parser does not model, by effect. */
 const DESTRUCTIVE_LEAD = [
     'DROP', 'TRUNCATE', 'DETACH', 'SYSTEM', 'KILL', 'RENAME', 'EXCHANGE',
-    'REVOKE', 'OPTIMIZE', 'RESTORE',
+    'REVOKE', 'OPTIMIZE', 'RESTORE', 'DELETE',
 ];
 
-const WRITE_LEAD = [
-    'INSERT', 'CREATE', 'ALTER', 'ATTACH', 'SET', 'GRANT', 'USE', 'BACKUP',
+/**
+ * Statements that only read. Anything that is neither listed here nor
+ * destructive is treated as a write — including a statement from a ClickHouse
+ * newer than this extension. An unknown statement is not a safe one.
+ */
+const READ_LEAD = [
+    'SELECT', 'WITH', 'FROM', 'VALUES', 'EXPLAIN', 'DESCRIBE', 'DESC', 'SHOW',
+    'EXISTS', 'CHECK',
 ];
 
 function qualify(ref: { database?: { name: string }; table: { name: string } } | undefined): string | undefined {
@@ -85,9 +91,9 @@ export function classifyStatement(statement: Statement): StatementSummary {
             const lead = statement.lead;
             const head = lead.split(/\s+/)[0] ?? '';
             if (DESTRUCTIVE_LEAD.includes(head)) return { effect: 'destructive', label: lead };
-            if (WRITE_LEAD.includes(head)) return { effect: 'write', label: lead };
-            // EXPLAIN, DESCRIBE, SHOW, EXISTS, CHECK and anything unrecognised.
-            return { effect: 'read', label: lead };
+            if (READ_LEAD.includes(head)) return { effect: 'read', label: lead };
+            // INSERT, CREATE, UPDATE, UNDROP — and anything unrecognised.
+            return { effect: 'write', label: lead };
         }
     }
 }

@@ -155,6 +155,14 @@ describe('request shape', () => {
         expect(result.queryId).toBe('abc-123');
     });
 
+    it('sends per-query settings, which a profile setting cannot shadow', async () => {
+        stubFetch(NAMES_TYPES_ROWS);
+        await new ClickHouseClient({ ...CONNECTION, settings: { log_processors_profiles: 0 } }).query('SELECT 1', {
+            settings: { log_processors_profiles: '1' },
+        });
+        expect(query().get('log_processors_profiles')).toBe('1');
+    });
+
     it('sends profile settings', async () => {
         stubFetch(NAMES_TYPES_ROWS);
         await new ClickHouseClient({ ...CONNECTION, settings: { max_threads: 4 } }).query('SELECT 1');

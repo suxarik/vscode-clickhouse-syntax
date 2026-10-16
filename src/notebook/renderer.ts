@@ -14,6 +14,9 @@ import { Transport } from '../results/view/transport';
 import { HostMessage, SerializationFormat, ViewMessage } from '../results/protocol';
 import { serialize } from '../results/serialize';
 import { CellResult } from './controller';
+import { PlanView } from '../explain/view/planView';
+import { PLAN_STYLE } from '../explain/view/planStyle';
+import { PLAN_MIME, PlanHostMessage, PlanPayload, PlanTransport, PlanViewMessage } from '../explain/protocol';
 
 /** The slice of VS Code's renderer API this file uses. */
 interface RendererContext {
@@ -23,7 +26,9 @@ interface RendererContext {
 
 interface OutputItem {
     id: string;
-    json(): CellResult;
+    mime: string;
+    /** A cell output is a result or a plan, never both. */
+    json(): CellResult | PlanPayload;
 }
 
 /** Styles belong to the iframe, so they are injected once rather than per cell. */
@@ -38,6 +43,47 @@ function ensureStyles(): void {
 .ch-cancel { display: none; }
 `;
     document.head.appendChild(style);
+}
+
+/** The plan view needs its own styles, and its own height inside a cell. */
+function ensurePlanStyles(): void {
+    const id = 'ch-plan-style';
+    if (document.getElementById(id)) return;
+    const style = document.createElement('style');
+    style.id = id;
+    style.textContent = `${PLAN_STYLE}
+/* A runbook output is a band in a scrolling document, not a full pane. */
+.ch-plan { height: 460px; max-height: 72vh; }
+`;
+    document.head.appendChild(style);
+}
+
+/** Draw a stored plan in a runbook cell, using the same view the panel uses. */
+function mountPlan(payload: PlanPayload, root: HTMLElement, context: RendererContext): void {
+    ensurePlanStyles();
+
+    let deliver: ((message: PlanHostMessage) => void) | undefined;
+    const transport: PlanTransport = {
+        post(message: PlanViewMessage) {
+            if (message.type === 'ready') {
+                deliver?.({ type: 'plan', payload });
+                return;
+            }
+            // Saving a file belongs to the extension host; the image is made
+            // here, so only the finished image crosses.
+            context.postMessage?.({
+                type: 'exportImage',
+                format: message.format,
+                data: message.data,
+                suggestedName: 'clickhouse-plan',
+            });
+        },
+        onMessage(handler: (message: PlanHostMessage) => void) {
+            deliver = handler;
+        },
+    };
+
+    new PlanView(root, transport);
 }
 
 /**
@@ -83,7 +129,12 @@ export function activate(context: RendererContext) {
             const root = document.createElement('div');
             element.appendChild(root);
 
-            const result = item.json();
+            if (item.mime === PLAN_MIME) {
+                mountPlan(item.json() as PlanPayload, root, context);
+                return;
+            }
+
+            const result = item.json() as CellResult;
             let deliver: ((message: HostMessage) => void) | undefined;
 
             const transport: Transport = {

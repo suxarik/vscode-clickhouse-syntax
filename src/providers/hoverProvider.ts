@@ -114,6 +114,24 @@ export async function buildHover(
         return new vscode.Hover(md, range);
     }
 
+    // ── A table function, but only where one is being called ──
+    // `numbers(10)` is the table function; `system.numbers` is the table, and
+    // the bracket is the only thing that tells them apart.
+    const afterWord = document.getText().slice(document.offsetAt(range.end), document.offsetAt(range.end) + 1);
+    if (afterWord === '(') {
+        const tableFn = catalog.tableFunctionByName(word);
+        if (tableFn) {
+            const md = new vscode.MarkdownString();
+            md.appendMarkdown(`**${tableFn.name}** — *table function*\n\n`);
+            if (tableFn.description) md.appendMarkdown(`${tableFn.description}\n\n`);
+            if (tableFn.syntax) md.appendCodeblock(tableFn.syntax, 'sql');
+            if (!tableFn.allowReadonly) {
+                md.appendMarkdown('\nRefused on a read-only connection.\n');
+            }
+            return new vscode.Hover(md, range);
+        }
+    }
+
     const schema = schemaManager.getSchema();
 
     // ── A table from the user's schema ──

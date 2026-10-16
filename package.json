@@ -2,11 +2,11 @@
   "name": "clickhouse-syntax",
   "displayName": "ClickHouse SQL \u2014 IDE & Runbooks",
   "description": "Run, explain and profile ClickHouse queries without leaving the editor. Result grid, incident runbooks, dbt models, schema migrations.",
-  "version": "2.3.1",
+  "version": "2.5.6",
   "publisher": "SuXarikisme",
   "icon": "images/clickhouse.png",
   "engines": {
-    "vscode": "^1.86.0"
+    "vscode": "^1.95.0"
   },
   "categories": [
     "Programming Languages",
@@ -51,7 +51,10 @@
     "onLanguage:sql",
     "onLanguage:clickhouse",
     "onView:clickhouseExplorer",
-    "onNotebook:clickhouse-notebook"
+    "onNotebook:clickhouse-notebook",
+    "onLanguageModelTool:clickhouse_run_query",
+    "onLanguageModelTool:clickhouse_list_tables",
+    "onLanguageModelTool:clickhouse_describe_table"
   ],
   "main": "./dist/extension.js",
   "browser": "./dist/web/extension.js",
@@ -188,7 +191,8 @@
       {
         "command": "clickhouse.previewTable",
         "title": "Preview Rows",
-        "category": "ClickHouse"
+        "category": "ClickHouse",
+        "icon": "$(eye)"
       },
       {
         "command": "clickhouse.showCreateTable",
@@ -289,6 +293,38 @@
         "command": "clickhouse.explainStatementAt",
         "title": "Explain Statement at Offset",
         "category": "ClickHouse"
+      },
+      {
+        "command": "clickhouse.analyzeQuery",
+        "title": "Analyze Query",
+        "category": "ClickHouse"
+      },
+      {
+        "command": "clickhouse.analyzeStatementAt",
+        "title": "Analyze Statement",
+        "category": "ClickHouse"
+      },
+      {
+        "command": "clickhouse.analyzeNotebookCell",
+        "title": "Analyze Cell",
+        "category": "ClickHouse",
+        "icon": "$(pulse)"
+      },
+      {
+        "command": "clickhouse.adviseOnSchema",
+        "title": "Advise on Schema",
+        "category": "ClickHouse"
+      },
+      {
+        "command": "clickhouse.forgetSchemaObservations",
+        "title": "Forget Analysed Query Shapes",
+        "category": "ClickHouse"
+      },
+      {
+        "command": "clickhouse.showCluster",
+        "title": "Show Cluster",
+        "category": "ClickHouse",
+        "icon": "$(type-hierarchy)"
       }
     ],
     "menus": {
@@ -527,6 +563,23 @@
           "command": "clickhouse.copyQualifiedName",
           "when": "view == clickhouseExplorer",
           "group": "3_copy"
+        },
+        {
+          "command": "clickhouse.showCluster",
+          "when": "view == clickhouseExplorer && viewItem == clickhouse.cluster",
+          "group": "inline"
+        },
+        {
+          "command": "clickhouse.showCluster",
+          "when": "view == clickhouseExplorer && viewItem == clickhouse.cluster",
+          "group": "1_cluster"
+        }
+      ],
+      "notebook/cell/title": [
+        {
+          "command": "clickhouse.analyzeNotebookCell",
+          "when": "notebookType == clickhouse-notebook && notebookCellType == code",
+          "group": "inline/clickhouse@1"
         }
       ]
     },
@@ -917,6 +970,11 @@
           "default": 100,
           "minimum": 0,
           "description": "Rows fetched by Preview Rows in the explorer. 0 reads the whole table."
+        },
+        "clickhouse.query.showAnalyzeCodeLens": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the Analyze action above each query. Analyze runs the query."
         }
       }
     },
@@ -1059,8 +1117,106 @@
         "entrypoint": "./dist/renderer.js",
         "requiresMessaging": "optional",
         "mimeTypes": [
-          "application/vnd.clickhouse.result+json"
+          "application/vnd.clickhouse.result+json",
+          "application/vnd.clickhouse.plan+json"
         ]
+      }
+    ],
+    "languageModelTools": [
+      {
+        "name": "clickhouse_run_query",
+        "displayName": "Run a ClickHouse query",
+        "modelDescription": "Run a read-only SQL query against the active ClickHouse connection and return the rows. Use it to answer questions about the data. Writes are refused: no INSERT, ALTER, DROP, DELETE, UPDATE or SYSTEM statement will be sent, whatever the profile allows. Prefer clickhouse_list_tables and clickhouse_describe_table first, so the query names columns that exist.",
+        "toolReferenceName": "chquery",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(database)",
+        "userDescription": "Run a read-only query on the active ClickHouse connection",
+        "tags": [
+          "clickhouse",
+          "sql",
+          "database"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "description": "The read-only SQL to run."
+            },
+            "maxRows": {
+              "type": "number",
+              "description": "Rows to return. Defaults to 200, capped at 2000."
+            }
+          },
+          "required": [
+            "query"
+          ]
+        }
+      },
+      {
+        "name": "clickhouse_list_tables",
+        "displayName": "List ClickHouse tables",
+        "modelDescription": "List the tables on the active ClickHouse connection, with their database, engine and row count. Call it before writing a query, to find out what exists.",
+        "toolReferenceName": "chtables",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(list-tree)",
+        "userDescription": "List the tables on the active ClickHouse connection",
+        "tags": [
+          "clickhouse",
+          "sql",
+          "database"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "database": {
+              "type": "string",
+              "description": "Limit to one database. Omit for every database."
+            }
+          }
+        }
+      },
+      {
+        "name": "clickhouse_describe_table",
+        "displayName": "Describe a ClickHouse table",
+        "modelDescription": "Return the columns of one ClickHouse table, with their types, defaults and comments. Call it before writing a query against that table.",
+        "toolReferenceName": "chdescribe",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(symbol-field)",
+        "userDescription": "Show the columns of a ClickHouse table",
+        "tags": [
+          "clickhouse",
+          "sql",
+          "database"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "table": {
+              "type": "string",
+              "description": "The table name."
+            },
+            "database": {
+              "type": "string",
+              "description": "The database it is in. Omit to search every database."
+            }
+          },
+          "required": [
+            "table"
+          ]
+        }
+      }
+    ],
+    "colors": [
+      {
+        "id": "clickhouse.writable",
+        "description": "Marks a connection that is allowed to write. ClickHouse orange by default.",
+        "defaults": {
+          "dark": "#FF9900",
+          "light": "#C76A00",
+          "highContrast": "#FFAA33",
+          "highContrastLight": "#A35400"
+        }
       }
     ]
   },
@@ -1087,7 +1243,7 @@
     "@types/jest": "^30.0.0",
     "@types/mocha": "^10.0.10",
     "@types/node": "^18.0.0",
-    "@types/vscode": "^1.86.0",
+    "@types/vscode": "^1.95.0",
     "@typescript-eslint/eslint-plugin": "^8.68.0",
     "@typescript-eslint/parser": "^8.68.0",
     "@vscode/test-cli": "^0.0.15",

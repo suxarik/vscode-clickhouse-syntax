@@ -42,6 +42,8 @@ afterEach(() => {
 
 describe('a million rows', () => {
     const MILLION = 1_000_000;
+    /** Matches the row height the grid lays out with. */
+    const ROW_HEIGHT = 22;
 
     it('renders only a windowful, whatever the row count', () => {
         const { root, send } = mount();
@@ -63,22 +65,34 @@ describe('a million rows', () => {
         expect(() => send({ type: 'rows', rows: makeRows(200_000), total: 200_000 })).not.toThrow();
     }, 120_000);
 
-    it('scrolls in constant time', () => {
-        const { root, scroller, send } = mount();
-        send({ type: 'begin', header: { query: 'q', profile: 'p', queryId: 'i' } });
-        send({ type: 'columns', columns: COLUMNS });
-        send({ type: 'rows', rows: makeRows(MILLION), total: MILLION });
+    it('scrolls a window that does not grow with the row count', () => {
+        // The claim is constant work per render, so the thing to assert is the
+        // window. The stopwatch this replaced measured how busy the machine
+        // was: it read 4s on a loaded runner and 0.2s alone, with the same code.
+        const windowsWhileScrolling = (total: number): number[] => {
+            const { root, scroller, send } = mount();
+            send({ type: 'begin', header: { query: 'q', profile: 'p', queryId: 'i' } });
+            send({ type: 'columns', columns: COLUMNS });
+            send({ type: 'rows', rows: makeRows(total), total });
 
-        const started = Date.now();
-        for (let i = 0; i < 20; i++) {
-            scroller.scrollTop = i * 50_000;
-            scroller.dispatchEvent(new Event('scroll'));
+            const counts: number[] = [];
+            for (let i = 0; i < 20; i++) {
+                scroller.scrollTop = Math.floor((i / 20) * total * ROW_HEIGHT);
+                scroller.dispatchEvent(new Event('scroll'));
+                counts.push(root.querySelectorAll('.ch-body .ch-row').length);
+            }
+            return counts;
+        };
+
+        const thousand = windowsWhileScrolling(1_000);
+        const million = windowsWhileScrolling(MILLION);
+
+        for (const rendered of [...thousand, ...million]) {
+            expect(rendered).toBeGreaterThan(0);
+            expect(rendered).toBeLessThan(80);
         }
-        const elapsed = Date.now() - started;
-
-        // Twenty jumps through a million rows must not be measured in seconds.
-        expect(elapsed).toBeLessThan(2000);
-        expect(root.querySelectorAll('.ch-body .ch-row').length).toBeGreaterThan(0);
+        // A thousand times the rows must not cost one extra node.
+        expect(Math.max(...million)).toBeLessThanOrEqual(Math.max(...thousand));
     }, 120_000);
 });
 

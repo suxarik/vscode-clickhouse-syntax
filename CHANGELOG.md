@@ -2,6 +2,252 @@
 
 All notable changes to this extension will be documented in this file.
 
+## [2.5.6] - 2026-10-16
+
+### Added
+
+- **Analyze knows a distributed query ran on several shards.** When the query was
+  distributed, the findings say what each shard was asked to read and whether that was
+  even — a distributed query is only as quick as its slowest shard, so the busiest one
+  sets the time.
+
+  The initiator's own row in `query_log` counts the whole query rather than its shard,
+  so its local share is what is left once the remote shards are taken off. Presented
+  straight, it would show the initiator doing all the work.
+
+  It runs last, after the plan and the rest of the findings, and costs nothing on a
+  single node: a query that ran in one place returns nothing and nothing is shown.
+
+- **Preview Rows shows the query it ran.** It opened a result and hid the statement,
+  which made the obvious next step — add a WHERE, raise the limit, pick columns instead
+  of every one — impossible. The statement now opens as a ClickHouse SQL document and
+  then runs, so it can be read, edited and run again. Opened that way it inherits what
+  the editor already does: highlighting, completion, the linter, and Run, Explain and
+  Analyze above the statement.
+
+- **The explorer says when a connection may write.** On a profile with `allowWrite`, the
+  server, its databases and their tables turn ClickHouse orange, and the server says
+  "writable" in words beside it. Columns are left alone: they are not something a
+  connection grants access to, and marking every row of an expanded tree reads as a
+  rendering fault rather than as a warning. Read-only profiles are left plain, which is the default
+  and the quiet case. The colour is contributed as `clickhouse.writable`, so a theme can
+  change it.
+
+- **A cluster, as a map.** "ClickHouse: Show Cluster" draws shards across and replicas
+  down, with the findings beside it: a host that did not answer, a shard short of
+  replicas, a read-only replica and how long it has been one, replication lag, a queue
+  that is not draining, lost parts, an expired Keeper session.
+
+  And where the rows actually are. A sharding key is a promise about distribution that
+  nothing checks — sharding by a column with three distinct values across two shards
+  puts 66.7% on one of them, and the cluster is then only as fast as its busiest node.
+  No single node can see it; each looks perfectly healthy holding whatever share it was
+  given. Replicas of one shard are compared with each other too, since they should hold
+  the same rows and a gap means one is behind or has lost parts.
+
+  Every box is the same size, because a cluster is a map rather than a measurement:
+  sizing a replica by its rows would make the busiest shard look like more of the
+  cluster than it is. The bar inside each box is the measurement. The toolbar, canvas,
+  findings pane, summary and export are the plan view's, down to the stylesheet.
+
+  It only reads. A cluster is looked at during an incident, which is exactly when a
+  tool should not be able to make anything worse.
+
+
+- **A plan visualiser, from the profile rather than the estimate.** `◉ Analyze`,
+  beside Run and Explain, runs the query and reads `system.processors_profile_log`:
+  real CPU time, rows in and out, and waiting time per operator. The plan text and
+  the drawing share one resizable panel, and selecting an operator marks the line the
+  server wrote it on.
+
+  Two drawings of one graph. The flame makes width mean time, so the bottleneck is the
+  widest bar. The node-link view sizes each box by its cost and each edge by the rows
+  crossing it. ClickHouse runs one processor per thread — 54 rows for a plain `GROUP BY`
+  is ordinary — so processors collapse into the plan step they belong to, and runs of
+  steps below a percent fold into one. Eleven boxes become eight, and the two that
+  matter are the two you see.
+
+  Fit and 1:1 for zoom; SVG, PNG and JPG to save. An exported drawing carries its own
+  background, resolved colours and a real font stack, because a file inherits no theme
+  — which is the usual reason an exported diagram opens looking wrong.
+
+  Analyze executes, so it is offered on reads only and refuses anything else whatever
+  the profile permits. It runs with `FORMAT Null`: the server does the work and returns
+  nothing, so no production rows are fetched to draw a picture of them.
+
+  The node-link view states its direction rather than implying it: every edge ends in
+  an arrowhead, carries the rows crossing it, and lands on its own point along the
+  target so converging edges stop overlapping. Steps are numbered in execution order,
+  sources first, so the graph has a reading order instead of leaving one to be inferred.
+
+  Emphasis is spent in one place. The hot path runs through every step of a pipeline,
+  so outlining it outlined everything; the costliest step alone is marked now. The wait
+  hatch had the same problem — nearly everything in a pipeline waits — so it is kept for
+  a step that did real work and *still* spent its life blocked, which is the only case
+  where it says something new.
+
+  An exported file carries a margin, and a background that covers it: the first and last
+  rows sat against the edge, and the background started inside the margin it was meant
+  to fill.
+
+  **Folded runs open.** A run of negligible steps is drawn as one bar, which keeps the
+  picture readable and hides what is inside it. Clicking the bar opens it, "Expand all"
+  opens every one, and the same button is the way back — opening a run replaces its bar
+  with its contents, so the bar itself cannot be what closes it again. An exported file
+  shows whatever is on screen at the time, opened runs included, because the export is
+  made from the drawing rather than rebuilt from the data.
+
+  **Advice from the measurements, not the text.** A findings pane beside the drawing
+  says what this query, on this data, actually cost: an index that pruned nothing, an
+  exact distinct that took most of the CPU, a read that threw away almost everything it
+  fetched, the one step that dominated, a query that waited rather than computed. Every
+  finding carries the number that justifies it, because a severity without evidence is an
+  opinion wearing a badge.
+
+  It is lazy throughout. Advice never delays the plan: the drawing goes up first, rules
+  yield to the host between batches, findings appear as they are found, and a newer
+  Analyze abandons the run in flight. The lookups that cost a query happen last and only
+  for findings that want one — "the index removed nothing" appears immediately and
+  upgrades itself to "sorted by (user_id, created_at)" when the key arrives. One query
+  for all of them, and the finding stands on its own if it fails.
+
+  The same findings are underlined in the query itself, with the measurement in the
+  hover and a quick fix where the rewrite is mechanical — uniqExact to uniq, and nothing
+  that needs a judgement about the answer. Measurements carry no source positions, so a
+  finding is placed by what it is about: the parse tree is asked where `uniqExact` or
+  `demo.orders` is, which is also what keeps `SELECT 'uniqExact'` from being underlined.
+  Positions belong to the document version that ran, and the moment that document is
+  edited they are dropped — a squiggle confidently pointing at the wrong word is worse
+  than no squiggle.
+
+  **Advice about the table, not just the query.** "ClickHouse: Advise on Schema" reads
+  what several analysed queries had in common and writes out what to consider — a skip
+  index, or a key that leads with the column they all filter on. Two queries before it
+  says anything, since one proves nothing, and nothing is ever applied: the DDL is
+  written as something to read, with the migration it implies spelled out beside it.
+
+  It keeps column names, a pruning fraction and a row count. Never the query, never a
+  literal, never a result — a tool that quietly accumulated a history of production
+  queries would be indefensible, and what is stored makes that impossible rather than
+  merely discouraged. It lives in the extension's own storage rather than in settings,
+  so it cannot sync or reach a repository, it is forgotten after a month, and
+  "Forget Analysed Query Shapes" clears it on demand.
+
+  A join puts one table's filters in another table's query, so a suggestion is only made
+  for a column the table actually has. Without that check it proposed an index on
+  `users.status` — a column `users` does not have — which is DDL that fails rather than
+  advice.
+
+  The pane opens itself only for something important. A panel that springs open for every
+  observation is a panel people close and never open again, so the quieter ones are
+  announced by a count on the toggle instead.
+
+  **Runbooks get it too.** A query cell has an Analyze action that renders the same view
+  in the cell's own output, through the same transport seam the result grid uses.
+
+  CPU time and wall clock are reported side by side and never conflated. Summed
+  `elapsed_us` is work across every thread, not duration — 82 ms of CPU inside 31 ms of
+  wall clock is eighteen threads, not a slow query. Below 1× the panel says the query was
+  waiting rather than calling it parallelism.
+
+### Fixed
+
+- **The explorer listed the server beside its own databases.** A database belongs to the
+  server it is on, and putting them side by side at the root read as two unrelated
+  things. Databases now sit inside the server, which is expanded by default so nothing
+  moved behind a click.
+
+- **A MergeTree table wore the database icon.** The icon map gave the whole MergeTree
+  family `database`, which is what the database node above it uses — so a table looked
+  like a database inside a database. They are `layers` now, and a test refuses any
+  engine that would take the database node's icon.
+
+- **Show Create Table put the definition in a grid cell.** The answer to `SHOW CREATE
+  TABLE` is a statement, not a result: a dozen lines of DDL arrived as a single cell,
+  where the line breaks that make it readable are exactly what a cell cannot show. It
+  opens as a ClickHouse SQL document now, which is also what you want if the next step
+  is to edit it.
+
+- **Show Cluster was not in the right-click menu, and Preview Rows had no button.** Both
+  were contributed to the `inline` group, which is not the context menu: it is a button
+  drawn on the row from the command's icon, and neither command had one. The manifest
+  test now refuses an inline action with nothing to draw, checks the cluster entry is in
+  a menu group rather than only on hover, and checks every menu entry points at a
+  command that exists.
+
+- **`SYSTEM FLUSH LOGS` never ran.** `query` appends a FORMAT clause so it can read rows
+  back, and a FORMAT clause after SYSTEM is a syntax error — so the flush failed every
+  time Analyze was asked for one, and the poll that follows quietly covered for it.
+  Every Analyze on a writable profile had been waiting for the timer instead. It goes
+  through `execute` now, which sends a statement as written: the same profile collects
+  in 1.5s rather than 3 to 5.
+
+- **An exported SVG would not open.** `XMLSerializer` emits `xmlns` for an element
+  already in the SVG namespace, and the exporter set it again as a plain attribute. Two
+  of them is not untidy XML, it is invalid XML: browsers refuse the file outright with
+  "duplicate attribute". The test asserted the namespace was present, which a duplicate
+  satisfies; it now asserts the markup parses, which is the actual contract.
+
+- **`DELETE FROM` and `UPDATE` were classified as reads.** The parser models neither, and
+  anything it did not model fell through to `read` — so a lightweight `DELETE` ran with **no
+  confirmation at all** on a profile with `allowWrite`, and on a `protected` profile the typed
+  confirmation never fired either, because that branch is only reached once a statement counts
+  as a write. On a read-only profile `readonly=2` still stopped it at the server, but the
+  extension's own check — the first of the two it promises — passed it through.
+
+  The default is now inverted. A statement is a read only if it leads with one of `SELECT`,
+  `WITH`, `FROM`, `VALUES`, `EXPLAIN`, `DESCRIBE`, `DESC`, `SHOW`, `EXISTS` or `CHECK`;
+  everything else is a write unless it is already known to be destructive. `DELETE` joins the
+  destructive list beside `ALTER … DELETE`. ClickHouse adds statements every month, and the
+  old shape meant every one of them arrived pre-classified as harmless.
+
+- **Valid 26.8 and 26.9 syntax was underlined as an error.** Four cases, each now parsed:
+  the PostgreSQL-style regex operators `~`, `~*`, `!~` and `!~*`; `LIMIT n AFTER cond`;
+  `LIMIT AFTER cond ALL UNTIL cond`; and `REFRESH … APPEND INCREMENTAL` on a materialized
+  view. The refresh clause had never parsed — refreshable views have existed since 23.12.
+
+- **The catalog generator silently dropped the log tables.** ClickHouse creates `query_log`,
+  `part_log`, `trace_log` and the rest lazily, on first flush, so reading the catalog from a
+  freshly started container lost all ten of them — the tables the profiler and every runbook
+  lean on hardest. The generator now writes a part, runs a sampled query, flushes, and
+  **refuses to write a catalog** that is still missing any of them. A regression test covers it.
+
+### Added
+
+- **Table functions.** All 95 of them, read from `system.table_functions`, which the generator
+  never used to query: `s3`, `iceberg`, `deltaLake`, `remote`, `url`, `numbers`, `bigquery` and
+  the rest. They complete where a table belongs — after `FROM` and `JOIN`, never in a `SELECT`
+  list — and hover gives the signature, plus a note when one cannot be used on a read-only
+  connection.
+
+- **Three tools for agent mode.** Copilot — or anything that speaks VS Code's language model
+  tool API — can use the connection you already configured: `#chquery` runs a query,
+  `#chtables` lists tables, `#chdescribe` shows columns. **An agent may only read.** A profile
+  with `allowWrite` lets a person write after a confirmation they can see; nothing an agent
+  sends is seen first, so the tools refuse every write whatever the profile permits, and
+  `readonly` goes with the request so the server refuses it too.
+
+### Changed
+
+- **Catalog regenerated from ClickHouse 26.9.19.9**, up from 26.7.5.10. Functions 1858 → 1918,
+  settings 2071 → 2226, keywords 647 → 660, formats 112 → 114, system tables 134 → 155. The
+  previous catalog was cut one day before 26.8 LTS shipped, so it had missed two releases.
+
+- **VS Code 1.95 is now the minimum**, up from 1.86. The language model tool API lands there.
+
+- **CI runs against pinned ClickHouse versions**, 26.9 and 26.8 LTS, instead of `latest`.
+  `latest` meant the integration tests quietly moved to whatever shipped that week — for the
+  last seven of them, a server two releases newer than the catalog being tested.
+
+### Internal
+
+- **A flaky scale test now asserts the property instead of the clock.** `scrolls in constant
+  time` put a stopwatch around twenty scroll jumps and failed above 2s. It read 0.2s run alone
+  and 4s under a loaded suite, with identical code. It now asserts what windowing actually
+  claims — that the rendered window does not grow with the row count — by scrolling a thousand
+  rows and a million and comparing the nodes. Instant, and it cannot race. Verified by
+  mutation: widening the window by one node per 20k rows fails it at 98 against a bound of 80.
+
 ## [2.3.1] - 2026-08-30
 
 ### Fixed

@@ -26,7 +26,10 @@ jobs:
 
     services:
       clickhouse:
-        image: clickhouse/clickhouse-server:latest
+        # Pinned for the same reason CI is: `latest` means the release tests
+        # run against whatever shipped that week, which is not what the
+        # shipped catalog describes.
+        image: clickhouse/clickhouse-server:26.9
         ports:
           - 18123:8123
         env:

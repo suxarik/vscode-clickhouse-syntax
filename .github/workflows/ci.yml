@@ -46,13 +46,21 @@ jobs:
           retention-days: 7
 
   integration:
-    name: Integration (real ClickHouse)
+    name: Integration (ClickHouse ${{ matrix.clickhouse }})
     runs-on: ubuntu-latest
     needs: test
 
+    strategy:
+      fail-fast: false
+      matrix:
+        # The release the shipped catalog was generated from, and the LTS most
+        # production clusters actually run. `latest` meant the tests silently
+        # moved to a server the catalog had never described.
+        clickhouse: ['26.9', '26.8']
+
     services:
       clickhouse:
-        image: clickhouse/clickhouse-server:latest
+        image: clickhouse/clickhouse-server:${{ matrix.clickhouse }}
         ports:
           - 18123:8123
         env:

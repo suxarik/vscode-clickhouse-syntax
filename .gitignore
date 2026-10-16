@@ -10,3 +10,6 @@ coverage/
 plans/
 dist/
 .vscode-test/
+
+# Rendered demo plans: regenerate them, do not review them in diffs.
+demo/plans/

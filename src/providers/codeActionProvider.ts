@@ -9,6 +9,7 @@
 import * as vscode from 'vscode';
 import { SchemaManager } from '../schemaManager';
 import { DIAGNOSTIC_SOURCE } from './diagnosticProvider';
+import { ADVICE_SOURCE } from '../advice/diagnostics';
 import {
     caseToMultiIf,
     expandSelectStar,
@@ -40,6 +41,11 @@ function ruleIdOf(diagnostic: vscode.Diagnostic): string | undefined {
 
 function ourDiagnostics(context: vscode.CodeActionContext, ruleId: string): vscode.Diagnostic[] {
     return context.diagnostics.filter(d => d.source === DIAGNOSTIC_SOURCE && ruleIdOf(d) === ruleId);
+}
+
+/** Advice comes from a query that ran, so it is a separate source. */
+function adviceDiagnostics(context: vscode.CodeActionContext, ruleId: string): vscode.Diagnostic[] {
+    return context.diagnostics.filter(d => d.source === ADVICE_SOURCE && ruleIdOf(d) === ruleId);
 }
 
 export function computeCodeActions(
@@ -79,6 +85,28 @@ export function computeCodeActions(
             action.diagnostics = [diagnostic];
             action.edit = toWorkspaceEdit(document, edit);
             action.isPreferred = true;
+            actions.push(action);
+        }
+    }
+
+    // ── Quick fix: an exact distinct that cost most of the query ──
+    // Offered only where the rewrite is mechanical. Nothing that needs a
+    // judgement about the answer gets a one-click fix.
+    if (quickFixes) {
+        for (const diagnostic of adviceDiagnostics(context, 'exact-distinct-cost')) {
+            const called = document.getText(diagnostic.range);
+            if (called.toLowerCase() !== 'uniqexact') continue;
+
+            const action = new vscode.CodeAction(
+                'Replace uniqExact with uniq (approximate)',
+                vscode.CodeActionKind.QuickFix
+            );
+            action.diagnostics = [diagnostic];
+            action.edit = toWorkspaceEdit(document, {
+                start: document.offsetAt(diagnostic.range.start),
+                end: document.offsetAt(diagnostic.range.end),
+                newText: 'uniq',
+            });
             actions.push(action);
         }
     }

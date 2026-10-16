@@ -16,7 +16,8 @@ export function registerRunCodeLens(analysisCache: AnalysisCache): vscode.Dispos
             const config = vscode.workspace.getConfiguration('clickhouse');
             const showRun = config.get<boolean>('query.showRunCodeLens', true);
             const showExplain = config.get<boolean>('query.showExplainCodeLens', true);
-            if (!showRun && !showExplain) return [];
+            const showAnalyze = config.get<boolean>('query.showAnalyzeCodeLens', true);
+            if (!showRun && !showExplain && !showAnalyze) return [];
 
             try {
                 const { program } = analysisCache.get(document);
@@ -53,6 +54,19 @@ export function registerRunCodeLens(analysisCache: AnalysisCache): vscode.Dispos
                                 command: 'clickhouse.explainStatementAt',
                                 title: '$(list-tree) Explain',
                                 tooltip: 'Show the query plan without running the query',
+                                arguments: [document.uri, statement.start],
+                            })
+                        );
+                    }
+
+                    // Analyze executes, so it is offered on reads only — the
+                    // same rule the command enforces when it is called directly.
+                    if (showAnalyze && summary.effect === 'read') {
+                        lenses.push(
+                            new vscode.CodeLens(range, {
+                                command: 'clickhouse.analyzeStatementAt',
+                                title: '$(pulse) Analyze',
+                                tooltip: 'Run the query and show where the time went',
                                 arguments: [document.uri, statement.start],
                             })
                         );

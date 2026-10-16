@@ -2,7 +2,7 @@
  * Tests for the explorer tree, schema cache naming, history and server validation.
  */
 import * as vscode from 'vscode';
-import { ExplorerProvider, qualifiedName } from '../client/explorerView';
+import { ExplorerNode, ExplorerProvider, engineIcon, qualifiedName } from '../client/explorerView';
 import { previewStatement } from '../client/explorerCommands';
 import { ConnectionManager } from '../client/connectionManager';
 import { cacheFileName, isStale } from '../client/schemaSync';
@@ -10,8 +10,9 @@ import { fetchProfile, QueryHistory } from '../client/history';
 import { parseErrorPosition } from '../client/liveDiagnostics';
 import { QueryCapable } from '../client/introspection';
 import { QueryResult } from '../client/types';
-import { makeSchemaManager } from './helpers';
+import { makeCatalog, makeSchemaManager } from './helpers';
 import { SchemaManager } from '../schemaManager';
+import { SchemaTable } from '../types';
 
 function makeContext() {
     const state: Record<string, unknown> = {};
@@ -59,9 +60,18 @@ describe('explorer tree', () => {
         return { explorer: new ExplorerProvider(schemaManager, connections), connections };
     }
 
-    it('lists databases at the root', () => {
+    it('puts the server at the root, with the databases inside it', () => {
+        // A database belongs to the server it is on. Listing them side by side
+        // reads as two unrelated things.
         const { explorer } = makeExplorer();
-        expect(explorer.getChildren()).toEqual([{ kind: 'database', name: 'analytics' }]);
+        expect(explorer.getChildren()).toEqual([{ kind: 'server' }]);
+        expect(explorer.getChildren({ kind: 'server' })).toEqual([{ kind: 'database', name: 'analytics' }]);
+    });
+
+    it('opens the server by default, so nothing is hidden behind a click', () => {
+        const { explorer } = makeExplorer();
+        const item = explorer.getTreeItem({ kind: 'server' });
+        expect(item.collapsibleState).toBe(vscode.TreeItemCollapsibleState.Expanded);
     });
 
     it('lists a database\'s tables, sorted', () => {
@@ -85,7 +95,11 @@ describe('explorer tree', () => {
     it('is empty when there is no schema, so the welcome content can show', () => {
         // A dead-end message node would hide the view's welcome buttons.
         const explorer = new ExplorerProvider(
-            { getSchema: () => null, getTables: () => [] } as unknown as SchemaManager,
+            {
+                getSchema: () => null,
+                getTables: () => [],
+                onDidChangeSchema: () => ({ dispose: () => undefined }),
+            } as unknown as SchemaManager,
             new ConnectionManager(makeContext())
         );
         expect(explorer.getChildren()).toEqual([]);
@@ -352,5 +366,247 @@ describe('previewStatement', () => {
 
     it('quotes names that need it', () => {
         expect(previewStatement('my db', 'my-table', 10)).toBe('SELECT * FROM `my db`.`my-table` LIMIT 10');
+    });
+});
+
+describe('the explorer and a schema that arrives later', () => {
+    it('redraws itself when the background sync finishes', async () => {
+        // The schema is fetched after the tree has already been drawn empty.
+        // Without a signal the view keeps offering "No tables loaded yet"
+        // while a perfectly good schema sits behind it.
+        const schemaManager = await makeSchemaManager();
+        const explorer = new ExplorerProvider(schemaManager, {
+            activeProfileName: () => 'local',
+            activeProfile: () => ({ name: 'local', host: 'localhost' }),
+            client: async () => undefined,
+        } as unknown as ConnectionManager);
+
+        let redrawn = 0;
+        explorer.onDidChangeTreeData(() => {
+            redrawn += 1;
+        });
+
+        schemaManager.setLiveSchema({
+            databases: [{ name: 'demo', tables: [{ name: 'events', columns: [], engine: 'MergeTree' }] }],
+        });
+
+        expect(redrawn).toBeGreaterThan(0);
+    });
+});
+
+describe('engineIcon', () => {
+    it('tells the MergeTree variants apart, because they read differently', () => {
+        // A ReplacingMergeTree needs FINAL; a SummingMergeTree does not. The
+        // engine is already in the description, but an icon is what gets
+        // noticed while scanning a long list.
+        // Not 'database': the database node above it uses that, and a table
+        // that looks like a database is worse than no icon at all.
+        expect(engineIcon('MergeTree')).toBe('layers');
+        expect(engineIcon('MergeTree')).not.toBe('database');
+        expect(engineIcon('ReplacingMergeTree')).toBe('versions');
+        expect(engineIcon('SummingMergeTree')).toBe('graph');
+        expect(engineIcon('AggregatingMergeTree')).toBe('graph');
+        expect(engineIcon('CollapsingMergeTree')).toBe('fold');
+    });
+
+    it('treats a Replicated or Shared engine as the family it belongs to', () => {
+        expect(engineIcon('ReplicatedReplacingMergeTree')).toBe(engineIcon('ReplacingMergeTree'));
+        expect(engineIcon('SharedMergeTree')).toBe(engineIcon('MergeTree'));
+    });
+
+    it('separates the things that are not really tables', () => {
+        expect(engineIcon('View')).toBe('eye');
+        expect(engineIcon('MaterializedView')).toBe('zap');
+        expect(engineIcon('Dictionary')).toBe('book');
+        expect(engineIcon('Distributed')).toBe('type-hierarchy');
+        expect(engineIcon('Null')).toBe('circle-slash');
+    });
+
+    it('marks what the data actually lives somewhere else', () => {
+        for (const engine of ['S3', 'IcebergS3', 'DeltaLake', 'AzureBlobStorage', 'HDFS', 'URL', 'File']) {
+            expect(engineIcon(engine)).toBe('cloud');
+        }
+        for (const engine of ['MySQL', 'PostgreSQL', 'MongoDB', 'SQLite', 'Redis', 'BigQuery']) {
+            expect(engineIcon(engine)).toBe('plug');
+        }
+        for (const engine of ['Kafka', 'RabbitMQ', 'NATS', 'S3Queue']) {
+            expect(engineIcon(engine)).toBe('radio-tower');
+        }
+    });
+
+    it('falls back rather than leaving a table with no icon at all', () => {
+        expect(engineIcon('')).toBe('table');
+        expect(engineIcon(undefined)).toBe('table');
+        expect(engineIcon('SomethingClickHouseAddedLastWeek')).toBe('table');
+    });
+
+    it('never gives a table the icon the database node uses', () => {
+        const catalog = makeCatalog();
+        for (const engine of catalog.engines()) {
+            expect(engineIcon(engine.name)).not.toBe('database');
+        }
+    });
+
+    it('resolves every engine this ClickHouse reports, mostly to something specific', () => {
+        const catalog = makeCatalog();
+        const engines = catalog.engines();
+        expect(engines.length).toBeGreaterThan(50);
+
+        const unrecognised: string[] = [];
+        for (const engine of engines) {
+            const icon = engineIcon(engine.name);
+            expect(icon.length).toBeGreaterThan(0);
+            if (icon === 'table') unrecognised.push(engine.name);
+        }
+
+        // A map that quietly fell back for most engines would pass a
+        // "returns a string" check and still show one icon everywhere.
+        expect(unrecognised.length).toBeLessThan(engines.length / 3);
+    });
+});
+
+describe('the server at the top of the explorer', () => {
+    /** An explorer whose server shape has already been answered. */
+    function explorerKnowing(shape: { cluster: string; hosts: number } | undefined) {
+        const schemaManager = {
+            getSchema: () => ({ databases: [{ name: 'demo', tables: [] }] }),
+            getTables: () => [],
+            onDidChangeSchema: () => ({ dispose: () => undefined }),
+        } as unknown as SchemaManager;
+
+        const explorer = new ExplorerProvider(schemaManager, {
+            activeProfileName: () => 'local',
+            activeProfile: () => ({ name: 'local', host: 'localhost' }),
+            client: async () => undefined,
+        } as unknown as ConnectionManager);
+
+        (explorer as unknown as { serverShape?: unknown }).serverShape = { profile: 'local', cluster: shape };
+        return explorer;
+    }
+
+    it('is the only thing at the root', () => {
+        expect(explorerKnowing(undefined).getChildren()).toEqual([{ kind: 'server' }]);
+    });
+
+    it('shows nothing extra when there is no schema, so the welcome can offer to connect', () => {
+        const explorer = new ExplorerProvider(
+            {
+                getSchema: () => null,
+                getTables: () => [],
+                onDidChangeSchema: () => ({ dispose: () => undefined }),
+            } as unknown as SchemaManager,
+            { activeProfileName: () => 'local', client: async () => undefined } as unknown as ConnectionManager
+        );
+        expect(explorer.getChildren()).toEqual([]);
+    });
+
+    it('draws a single node differently from a cluster', () => {
+        const single = explorerKnowing(undefined).getChildren()[0];
+        const clustered = explorerKnowing({ cluster: 'analytics', hosts: 4 }).getChildren()[0];
+
+        const iconOf = (node: ExplorerNode, explorer: ExplorerProvider) =>
+            (explorer.getTreeItem(node).iconPath as vscode.ThemeIcon).id;
+
+        expect(iconOf(single, explorerKnowing(undefined))).toBe('server');
+        expect(iconOf(clustered, explorerKnowing({ cluster: 'analytics', hosts: 4 }))).toBe('type-hierarchy');
+    });
+
+    it('says what the server is, beside its name', () => {
+        const explorer = explorerKnowing({ cluster: 'analytics', hosts: 4 });
+        const item = explorer.getTreeItem(explorer.getChildren()[0]);
+
+        expect(item.label).toBe('local');
+        expect(String(item.description)).toContain('analytics');
+        expect(String(item.description)).toContain('4');
+    });
+
+    it('calls a single node a single node rather than leaving it blank', () => {
+        const explorer = explorerKnowing(undefined);
+        expect(String(explorer.getTreeItem(explorer.getChildren()[0]).description)).toContain('single node');
+    });
+
+    it('marks a cluster so the menu can offer to show it', () => {
+        const clustered = explorerKnowing({ cluster: 'analytics', hosts: 4 });
+        const single = explorerKnowing(undefined);
+
+        expect(clustered.getTreeItem(clustered.getChildren()[0]).contextValue).toBe('clickhouse.cluster');
+        expect(single.getTreeItem(single.getChildren()[0]).contextValue).toBe('clickhouse.server');
+    });
+});
+
+describe('marking a connection that can write', () => {
+    function explorerOn(allowWrite: boolean) {
+        const schemaManager = {
+            getSchema: () => ({ databases: [{ name: 'demo', tables: [] }] }),
+            getTables: () => [],
+            onDidChangeSchema: () => ({ dispose: () => undefined }),
+        } as unknown as SchemaManager;
+
+        return new ExplorerProvider(schemaManager, {
+            activeProfileName: () => 'local',
+            activeProfile: () => ({ name: 'local', host: 'localhost', allowWrite }),
+            client: async () => undefined,
+        } as unknown as ConnectionManager);
+    }
+
+    const table: ExplorerNode = {
+        kind: 'table',
+        database: 'demo',
+        table: { name: 'events', engine: 'MergeTree', columns: [] } as unknown as SchemaTable,
+    };
+
+    it('leaves a read-only connection alone', () => {
+        const icon = explorerOn(false).getTreeItem(table).iconPath as vscode.ThemeIcon;
+        expect(icon.id).toBe('layers');
+        expect(icon.color).toBeUndefined();
+    });
+
+    it('marks a writable one, because that is worth knowing before you type', () => {
+        const icon = explorerOn(true).getTreeItem(table).iconPath as vscode.ThemeIcon;
+        expect(icon.id).toBe('layers');
+        expect((icon.color as vscode.ThemeColor).id).toBe('clickhouse.writable');
+    });
+
+    it('marks the server too, so it is seen before any table is', () => {
+        const writable = explorerOn(true).getTreeItem({ kind: 'server' }).iconPath as vscode.ThemeIcon;
+        const readOnly = explorerOn(false).getTreeItem({ kind: 'server' }).iconPath as vscode.ThemeIcon;
+
+        expect((writable.color as vscode.ThemeColor).id).toBe('clickhouse.writable');
+        expect(readOnly.color).toBeUndefined();
+    });
+
+    const column: ExplorerNode = {
+        kind: 'column',
+        database: 'demo',
+        table: 'events',
+        column: { name: 'user_id', type: 'UInt64' },
+    };
+
+    it('marks every level that belongs to the connection', () => {
+        // Server, database, table. Half a tree in orange reads as a rendering
+        // fault rather than as a warning about the connection.
+        const writable = explorerOn(true);
+        for (const node of [{ kind: 'server' } as ExplorerNode, { kind: 'database', name: 'demo' } as ExplorerNode, table]) {
+            const icon = writable.getTreeItem(node).iconPath as vscode.ThemeIcon;
+            expect((icon.color as vscode.ThemeColor | undefined)?.id).toBe('clickhouse.writable');
+        }
+    });
+
+    it('leaves the columns alone, which are not something you connect to', () => {
+        const icon = explorerOn(true).getTreeItem(column).iconPath as vscode.ThemeIcon;
+        expect(icon.color).toBeUndefined();
+    });
+
+    it('leaves every level plain when the connection may not write', () => {
+        const readOnly = explorerOn(false);
+        for (const node of [{ kind: 'server' } as ExplorerNode, { kind: 'database', name: 'demo' } as ExplorerNode, table, column]) {
+            expect((readOnly.getTreeItem(node).iconPath as vscode.ThemeIcon).color).toBeUndefined();
+        }
+    });
+
+    it('says so in words as well as colour', () => {
+        const item = explorerOn(true).getTreeItem({ kind: 'server' });
+        expect(String(item.description)).toContain('writable');
+        expect(String(explorerOn(false).getTreeItem({ kind: 'server' }).description)).not.toContain('writable');
     });
 });

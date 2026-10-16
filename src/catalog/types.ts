@@ -44,6 +44,22 @@ export interface CatalogFunction {
     snippet: string;
 }
 
+/**
+ * A table function — `FROM s3(…)`, `FROM numbers(10)`. These live in a
+ * different namespace from scalar functions: ClickHouse reports them from
+ * `system.table_functions`, and they are only valid where a table is.
+ */
+export interface CatalogTableFunction {
+    name: string;
+    description?: string;
+    /** The signature line from the docs, e.g. `url(URL [,format] [,structure])`. */
+    syntax?: string;
+    /** The function may be used on a connection sent with `readonly`. */
+    allowReadonly?: true;
+    /** Snippet body for completion, e.g. `s3(${1:url}, ${2:format})`. */
+    snippet: string;
+}
+
 export interface CatalogDataType {
     name: string;
     caseInsensitive?: true;

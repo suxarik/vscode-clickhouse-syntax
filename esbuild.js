@@ -49,6 +49,26 @@ async function main() {
             external: ['node:http', 'node:https'],
             outfile: 'dist/results.js',
         }),
+        // The plan view: its own webview bundle, drawing SVG from the graph.
+        esbuild.context({
+            ...common,
+            entryPoints: ['src/explain/view/planEntry.ts'],
+            format: 'iife',
+            platform: 'browser',
+            target: 'es2022',
+            external: ['node:http', 'node:https'],
+            outfile: 'dist/plan.js',
+        }),
+        // The cluster map: the plan view's chrome, a different drawing.
+        esbuild.context({
+            ...common,
+            entryPoints: ['src/cluster/view/clusterEntry.ts'],
+            format: 'iife',
+            platform: 'browser',
+            target: 'es2022',
+            external: ['node:http', 'node:https'],
+            outfile: 'dist/cluster.js',
+        }),
         // The notebook output renderer: its own iframe, its own ESM bundle, and
         // no `vscode` API at all. It imports the same GridView the webview does.
         esbuild.context({
