@@ -53,16 +53,22 @@ beforeEach(() => {
 });
 
 describe('the actions above a statement', () => {
-    it('offers Run and Explain on a query', () => {
-        expect(titles('SELECT 1')).toEqual(['$(play) Run SELECT', '$(list-tree) Explain']);
+    it('offers Run, Explain and Analyze on a query', () => {
+        expect(titles('SELECT 1')).toEqual([
+            '$(play) Run SELECT',
+            '$(list-tree) Explain',
+            '$(pulse) Analyze',
+        ]);
     });
 
-    it('offers a pair per statement', () => {
+    it('offers the same actions above every statement', () => {
         expect(titles('SELECT 1;\nSELECT 2;')).toEqual([
             '$(play) Run SELECT',
             '$(list-tree) Explain',
+            '$(pulse) Analyze',
             '$(play) Run SELECT',
             '$(list-tree) Explain',
+            '$(pulse) Analyze',
         ]);
     });
 
@@ -78,16 +84,26 @@ describe('the actions above a statement', () => {
         expect(titles('TRUNCATE TABLE t')).not.toContain('$(list-tree) Explain');
     });
 
+    it('does not offer to analyze a statement, since analyzing runs it', () => {
+        expect(titles('INSERT INTO t VALUES (1)')).not.toContain('$(pulse) Analyze');
+        expect(titles('DROP TABLE events')).not.toContain('$(pulse) Analyze');
+    });
+
     it('points each action at the statement it sits above, not at the cursor', () => {
         const sql = 'SELECT 1;\nSELECT 2;';
         const lenses = lensesFor(sql);
         const offsets = lenses.map(lens => lens.command?.arguments?.[1]);
-        expect(offsets).toEqual([0, 0, sql.indexOf('SELECT 2'), sql.indexOf('SELECT 2')]);
+        const second = sql.indexOf('SELECT 2');
+        expect(offsets).toEqual([0, 0, 0, second, second, second]);
     });
 
     it('calls the offset commands, which take a document rather than the active editor', () => {
         const commands = lensesFor('SELECT 1').map(lens => lens.command?.command);
-        expect(commands).toEqual(['clickhouse.runStatementAt', 'clickhouse.explainStatementAt']);
+        expect(commands).toEqual([
+            'clickhouse.runStatementAt',
+            'clickhouse.explainStatementAt',
+            'clickhouse.analyzeStatementAt',
+        ]);
     });
 
     it('explains what Explain does, since it is not obvious that it is free', () => {
@@ -97,17 +113,34 @@ describe('the actions above a statement', () => {
 });
 
 describe('turning the actions off', () => {
-    it('drops Run but keeps Explain', () => {
-        expect(titles('SELECT 1', { 'query.showRunCodeLens': false })).toEqual(['$(list-tree) Explain']);
+    it('drops Run but keeps the rest', () => {
+        expect(titles('SELECT 1', { 'query.showRunCodeLens': false })).toEqual([
+            '$(list-tree) Explain',
+            '$(pulse) Analyze',
+        ]);
     });
 
-    it('drops Explain but keeps Run', () => {
-        expect(titles('SELECT 1', { 'query.showExplainCodeLens': false })).toEqual(['$(play) Run SELECT']);
+    it('drops Explain but keeps the rest', () => {
+        expect(titles('SELECT 1', { 'query.showExplainCodeLens': false })).toEqual([
+            '$(play) Run SELECT',
+            '$(pulse) Analyze',
+        ]);
     });
 
-    it('does no work at all when both are off', () => {
+    it('drops Analyze on its own, for anyone who does not want a click that runs the query', () => {
+        expect(titles('SELECT 1', { 'query.showAnalyzeCodeLens': false })).toEqual([
+            '$(play) Run SELECT',
+            '$(list-tree) Explain',
+        ]);
+    });
+
+    it('does no work at all when every action is off', () => {
         expect(
-            titles('SELECT 1', { 'query.showRunCodeLens': false, 'query.showExplainCodeLens': false })
+            titles('SELECT 1', {
+                'query.showRunCodeLens': false,
+                'query.showExplainCodeLens': false,
+                'query.showAnalyzeCodeLens': false,
+            })
         ).toEqual([]);
     });
 });

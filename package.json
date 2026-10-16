@@ -292,6 +292,22 @@
         "command": "clickhouse.explainStatementAt",
         "title": "Explain Statement at Offset",
         "category": "ClickHouse"
+      },
+      {
+        "command": "clickhouse.analyzeQuery",
+        "title": "Analyze Query",
+        "category": "ClickHouse"
+      },
+      {
+        "command": "clickhouse.analyzeStatementAt",
+        "title": "Analyze Statement",
+        "category": "ClickHouse"
+      },
+      {
+        "command": "clickhouse.analyzeNotebookCell",
+        "title": "Analyze Cell",
+        "category": "ClickHouse",
+        "icon": "$(pulse)"
       }
     ],
     "menus": {
@@ -530,6 +546,13 @@
           "command": "clickhouse.copyQualifiedName",
           "when": "view == clickhouseExplorer",
           "group": "3_copy"
+        }
+      ],
+      "notebook/cell/title": [
+        {
+          "command": "clickhouse.analyzeNotebookCell",
+          "when": "notebookType == clickhouse-notebook && notebookCellType == code",
+          "group": "inline/clickhouse@1"
         }
       ]
     },
@@ -920,6 +943,11 @@
           "default": 100,
           "minimum": 0,
           "description": "Rows fetched by Preview Rows in the explorer. 0 reads the whole table."
+        },
+        "clickhouse.query.showAnalyzeCodeLens": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the Analyze action above each query. Analyze runs the query."
         }
       }
     },
@@ -1062,7 +1090,8 @@
         "entrypoint": "./dist/renderer.js",
         "requiresMessaging": "optional",
         "mimeTypes": [
-          "application/vnd.clickhouse.result+json"
+          "application/vnd.clickhouse.result+json",
+          "application/vnd.clickhouse.plan+json"
         ]
       }
     ],
