@@ -15,6 +15,7 @@ import { catalogEngines } from './generated/engines';
 import { catalogSettings } from './generated/settings';
 import { catalogFormats } from './generated/formats';
 import { catalogKeywords } from './generated/keywords';
+import { catalogTableFunctions } from './generated/tableFunctions';
 import { CATALOG_VERSION, CATALOG_GENERATED_AT, CATALOG_COUNTS } from './generated/meta';
 import {
     CatalogArgument,
@@ -24,6 +25,7 @@ import {
     CatalogFunction,
     CatalogSetting,
     CatalogSystemTable,
+    CatalogTableFunction,
 } from './types';
 
 export * from './types';
@@ -41,6 +43,7 @@ const ASSET_DIR = 'catalog';
 
 export class Catalog {
     private functionIndex?: Map<string, CatalogFunction>;
+    private tableFunctionIndex?: Map<string, CatalogTableFunction>;
     private settingIndex?: Map<string, CatalogSetting>;
     private formatIndex?: Map<string, CatalogFormat>;
     private dataTypeIndex?: Map<string, CatalogDataType>;
@@ -75,6 +78,20 @@ export class Catalog {
             }
         }
         return this.functionIndex.get(name.toLowerCase());
+    }
+
+    /** Table functions, which are only valid where a table is. */
+    tableFunctions(): CatalogTableFunction[] {
+        return catalogTableFunctions();
+    }
+
+    tableFunctionByName(name: string): CatalogTableFunction | undefined {
+        if (!this.tableFunctionIndex) {
+            this.tableFunctionIndex = new Map(
+                catalogTableFunctions().map(fn => [fn.name.toLowerCase(), fn])
+            );
+        }
+        return this.tableFunctionIndex.get(name.toLowerCase());
     }
 
     settings(): CatalogSetting[] {

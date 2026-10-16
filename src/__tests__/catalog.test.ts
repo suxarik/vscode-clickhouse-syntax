@@ -81,6 +81,29 @@ describe('lazily-read assets', () => {
         expect(queryLog?.columns.map(c => c.name)).toContain('query_duration_ms');
     });
 
+    it('includes the log tables the profiler and the runbooks query', async () => {
+        // ClickHouse creates the *_log tables lazily, on the first flush. A
+        // catalog generated against a freshly started server loses them all,
+        // which silently removes completion for the tables this extension
+        // leans on hardest.
+        for (const name of [
+            'query_log',
+            'part_log',
+            'trace_log',
+            'text_log',
+            'metric_log',
+            'asynchronous_metric_log',
+            'processors_profile_log',
+        ]) {
+            const table = await catalog.systemTable(name);
+            expect({ name, columns: table?.columns.length ?? 0 }).toMatchObject({
+                name,
+                columns: expect.any(Number),
+            });
+            expect(table?.columns.length ?? 0).toBeGreaterThan(0);
+        }
+    });
+
     it('returns undefined for things it has no docs for', async () => {
         expect(await catalog.functionDoc('definitely_not_a_function')).toBeUndefined();
         expect(await catalog.systemTable('definitely_not_a_table')).toBeUndefined();
@@ -133,5 +156,28 @@ describe('functionDetail', () => {
     it('notes the introducing version', () => {
         const withSince = catalog.functions().find(fn => fn.since);
         expect(functionDetail(withSince!)).toContain(`since ${withSince!.since}`);
+    });
+});
+
+describe('table functions', () => {
+    it('knows the table functions the server reports', () => {
+        const names = catalog.tableFunctions().map(fn => fn.name);
+        for (const name of ['s3', 'iceberg', 'numbers', 'remote', 'url', 'mysql', 'merge']) {
+            expect(names).toContain(name);
+        }
+    });
+
+    it('looks a table function up case-insensitively', () => {
+        expect(catalog.tableFunctionByName('S3')?.name).toBe('s3');
+        expect(catalog.tableFunctionByName('not_a_table_function')).toBeUndefined();
+    });
+
+    it('offers a snippet to complete with', () => {
+        expect(catalog.tableFunctionByName('numbers')?.snippet).toMatch(/^numbers\(/);
+    });
+
+    it('keeps table functions out of the scalar function catalog', () => {
+        // `s3` is a table function, not something to offer inside a SELECT list.
+        expect(catalog.functionByName('s3')).toBeUndefined();
     });
 });

@@ -83,6 +83,40 @@ function query(sql) {
         .map(line => JSON.parse(line));
 }
 
+/**
+ * The `*_log` tables are created lazily, on the first flush. A catalog read
+ * from a server that has only answered a handful of introspection queries
+ * loses `query_log`, `part_log`, `trace_log` and the rest — precisely the
+ * tables the profiler and the runbooks lean on hardest. Generate the events
+ * first, then flush, so they exist before `system.columns` is read.
+ */
+const REQUIRED_LOG_TABLES = [
+    'query_log', 'part_log', 'trace_log', 'text_log', 'metric_log',
+    'asynchronous_metric_log', 'processors_profile_log',
+];
+
+function warmUpLogs() {
+    console.log('Warming the log tables …');
+    const steps = [
+        'DROP TABLE IF EXISTS default.catalog_warmup',
+        'CREATE TABLE default.catalog_warmup (a UInt8) ENGINE = MergeTree ORDER BY a',
+        'INSERT INTO default.catalog_warmup VALUES (1)',
+        'INSERT INTO default.catalog_warmup VALUES (2)',
+        'OPTIMIZE TABLE default.catalog_warmup FINAL',
+        'SELECT count() FROM numbers(20000000) SETTINGS ' +
+            'query_profiler_real_time_period_ns = 1000000, log_processors_profiles = 1',
+        'DROP TABLE default.catalog_warmup',
+    ];
+    for (const sql of steps) {
+        try {
+            query(sql);
+        } catch {
+            console.warn(`  warm-up step did not run: ${sql.slice(0, 56)}…`);
+        }
+    }
+    query('SYSTEM FLUSH LOGS');
+}
+
 /** Column names of a system table, so the script survives version differences. */
 function columnsOf(table) {
     return new Set(
@@ -144,6 +178,18 @@ function firstExample(text) {
         .join('\n')
         .trim();
     return body.length > 500 ? '' : body;
+}
+
+/** The first signature line in the docs that names this table function. */
+function firstSignature(name, text) {
+    const block = firstExample(text);
+    if (!block) return '';
+    const lower = `${name.toLowerCase()}(`;
+    for (const line of block.split('\n')) {
+        const trimmed = line.trim();
+        if (trimmed.toLowerCase().startsWith(lower)) return collapse(stripLinks(trimmed));
+    }
+    return '';
 }
 
 /** Snippet body: `name(${1:arg}, ${2:arg})` from the parsed arguments. */
@@ -291,6 +337,8 @@ function main() {
     const version = query('SELECT version() AS v')[0].v;
     console.log(`Reading catalog from ClickHouse ${version}`);
 
+    warmUpLogs();
+
     // Functions
     const fnColumns = columnsOf('functions');
     const fnSelect = pick(fnColumns, [
@@ -330,6 +378,26 @@ function main() {
         return fn;
     });
     for (const fn of functions) fn.group = groupFor({ ...fn, categories: fn.categories.join(',') });
+
+    // Table functions — `FROM s3(…)`. A namespace of their own, and the one
+    // ClickHouse keeps growing as it adds data lake sources.
+    const tableFnColumns = columnsOf('table_functions');
+    const tableFunctions = query(
+        `SELECT ${pick(tableFnColumns, ['name', 'description', 'allow_readonly']).join(', ')} ` +
+            `FROM system.table_functions ORDER BY name`
+    ).map(row => {
+        const docs = row.description ?? '';
+        const syntax = firstSignature(row.name, docs);
+        const entry = { name: row.name };
+        const description = firstParagraph(docs);
+        if (description) entry.description = description;
+        if (syntax) entry.syntax = syntax;
+        if (Number(row.allow_readonly)) entry.allowReadonly = true;
+        // One tab stop, not parsed placeholders: these docs describe arguments
+        // in prose, and guessing names out of them produced `s3($1:https)`.
+        entry.snippet = `${row.name}($0)`;
+        return entry;
+    });
 
     // Data types
     const typeColumns = columnsOf('data_type_families');
@@ -426,6 +494,15 @@ function main() {
             }),
     })).filter(table => table.columns.length > 0);
 
+    const presentTables = new Set(systemTables.map(table => table.name));
+    const missingLogs = REQUIRED_LOG_TABLES.filter(name => !presentTables.has(name));
+    if (missingLogs.length > 0) {
+        throw new Error(
+            `The server never created these log tables: ${missingLogs.join(', ')}. ` +
+                'Writing the catalog now would silently drop them from completion.'
+        );
+    }
+
     // ── Write ──
     // Two tiers. The bundled tier holds what completion and signature help need
     // on the keystroke path; prose lives in assets that are read from disk only
@@ -482,6 +559,10 @@ function main() {
     sizes['formats (bundled)'] = emitModule(
         'formats.ts', 'catalogFormats', formats, 'CatalogFormat[]', 'CatalogFormat'
     );
+    sizes['tableFunctions (bundled)'] = emitModule(
+        'tableFunctions.ts', 'catalogTableFunctions', tableFunctions,
+        'CatalogTableFunction[]', 'CatalogTableFunction'
+    );
     sizes['keywords (bundled)'] = emitModule('keywords.ts', 'catalogKeywords', keywords, 'string[]');
 
     sizes['function-docs (asset)'] = emitAsset('function-docs.json', functionDocs);
@@ -500,6 +581,7 @@ export const CATALOG_GENERATED_AT = ${JSON.stringify(new Date().toISOString().sl
 export const CATALOG_COUNTS = ${JSON.stringify(
             {
                 functions: functions.length,
+                tableFunctions: tableFunctions.length,
                 documentedFunctions: functions.filter(f => f.description).length,
                 dataTypes: dataTypes.length,
                 engines: engines.length,
@@ -520,6 +602,7 @@ export const CATALOG_COUNTS = ${JSON.stringify(
     console.log('');
     console.log(`ClickHouse       ${version}`);
     console.log(`functions        ${functions.length} (${functions.filter(f => f.description).length} documented)`);
+    console.log(`table functions  ${tableFunctions.length}`);
     console.log(`data types       ${dataTypes.length}`);
     console.log(`table engines    ${engines.length}`);
     console.log(`settings         ${settings.length} + ${mergeTreeSettings.length} MergeTree`);
