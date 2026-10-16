@@ -1,0 +1,119 @@
+-- ClickHouse plan visualiser — a tour, from trivial to genuinely hard.
+--
+-- Put the cursor in any statement and press the Analyze action above it, or
+-- Ctrl+Shift+Enter for Explain. Connect to the demo server first:
+--   host localhost, port 18125, database demo, no password.
+
+-- 1. A plain scan. One step does nearly all the work, so the flame is one
+--    wide bar and everything above it is a hairline.
+SELECT count()
+FROM demo.events
+WHERE event_date >= today() - 30;
+
+-- 2. The classic shape: filter, group, sort, limit. Four steps that each take
+--    a visible slice, which is the flame graph at its most readable.
+SELECT user_id, count() AS events, sum(revenue) AS revenue
+FROM demo.events
+WHERE event_date >= today() - 30 AND event_type = 'purchase'
+GROUP BY user_id
+ORDER BY revenue DESC
+LIMIT 100;
+
+-- 3. Partition pruning. Reads one month out of four; the Explain pane shows
+--    the parts and granules dropped, the drawing shows what that saved.
+SELECT device, country, uniqExact(user_id) AS people
+FROM demo.events
+WHERE event_date BETWEEN today() - 30 AND today()
+GROUP BY device, country
+ORDER BY people DESC;
+
+-- 4. A join. Two tables are read in parallel and meet, so the node-link view
+--    stops being a chain and becomes a real fork.
+SELECT u.plan, count() AS orders, round(avg(o.amount), 2) AS avg_amount
+FROM demo.orders AS o
+INNER JOIN demo.users AS u ON u.user_id = o.user_id
+WHERE o.status = 'paid'
+GROUP BY u.plan
+ORDER BY orders DESC;
+
+-- 5. Three tables, two joins, an array joined out. The widest plan here.
+SELECT item_sku, count() AS times_ordered, round(sum(o.amount), 2) AS revenue, any(i.price) AS price
+FROM demo.orders AS o
+ARRAY JOIN o.items AS item_sku
+INNER JOIN demo.users AS u ON u.user_id = o.user_id
+INNER JOIN demo.inventory AS i ON i.sku = item_sku
+WHERE o.status IN ('paid', 'shipped') AND u.plan != 'free'
+GROUP BY item_sku
+ORDER BY revenue DESC
+LIMIT 50;
+
+-- 6. CTEs feeding a join: two aggregations built separately, then matched.
+WITH
+    active AS (
+        SELECT user_id, count() AS touches
+        FROM demo.events
+        WHERE event_date >= today() - 60
+        GROUP BY user_id
+        HAVING touches > 8
+    ),
+    spend AS (
+        SELECT user_id, sum(amount) AS total
+        FROM demo.orders
+        WHERE status = 'paid'
+        GROUP BY user_id
+    )
+SELECT a.user_id, a.touches, round(s.total, 2) AS total
+FROM active AS a
+INNER JOIN spend AS s ON s.user_id = a.user_id
+ORDER BY total DESC
+LIMIT 100;
+
+-- 7. A window function over a grouped set: rank each country's top devices.
+SELECT country, device, people, rank() OVER (PARTITION BY country ORDER BY people DESC) AS place
+FROM (
+    SELECT country, device, uniqExact(user_id) AS people
+    FROM demo.events
+    WHERE event_date >= today() - 45
+    GROUP BY country, device
+)
+QUALIFY place <= 3
+ORDER BY country, place;
+
+-- 8. UNION ALL: two independent branches that merge. The clearest fan-in the
+--    node-link view will draw.
+SELECT 'events' AS source, toStartOfMonth(event_date) AS month, count() AS n
+FROM demo.events
+WHERE event_date >= today() - 120
+GROUP BY month
+UNION ALL
+SELECT 'orders' AS source, toStartOfMonth(toDate(created_at)) AS month, count() AS n
+FROM demo.orders
+WHERE created_at >= now() - INTERVAL 120 DAY
+GROUP BY month
+ORDER BY month, source;
+
+-- 9. Quantiles over a large scan, which spends its time in the aggregate
+--    rather than in the read.
+SELECT
+    event_type,
+    count() AS n,
+    quantiles(0.5, 0.9, 0.99)(revenue) AS p,
+    round(avg(revenue), 3) AS mean
+FROM demo.events
+WHERE event_date >= today() - 90 AND revenue > 0
+GROUP BY event_type
+ORDER BY n DESC;
+
+-- 10. FINAL on a ReplacingMergeTree, joined to a big aggregation. Deduplication
+--     at read time is work the plan makes visible.
+SELECT i.sku, i.stock, i.price, coalesce(o.sold, 0) AS sold
+FROM demo.inventory AS i FINAL
+LEFT JOIN (
+    SELECT sku, count() AS sold
+    FROM demo.orders ARRAY JOIN items AS sku
+    WHERE status = 'paid'
+    GROUP BY sku
+) AS o ON o.sku = i.sku
+WHERE i.stock < 50
+ORDER BY sold DESC
+LIMIT 100;

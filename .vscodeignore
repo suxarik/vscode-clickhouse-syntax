@@ -20,6 +20,10 @@ eslint.config.js
 .eslintrc.json
 PUBLISHING.md
 
+# The demo database tour: it points at a local container, so it belongs in the
+# repository rather than in anyone's installed extension.
+demo/**
+
 # Sample queries and local schema files
 *.sql
 **/*.chsql
