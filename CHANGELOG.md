@@ -2,6 +2,70 @@
 
 All notable changes to this extension will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+
+- **`DELETE FROM` and `UPDATE` were classified as reads.** The parser models neither, and
+  anything it did not model fell through to `read` — so a lightweight `DELETE` ran with **no
+  confirmation at all** on a profile with `allowWrite`, and on a `protected` profile the typed
+  confirmation never fired either, because that branch is only reached once a statement counts
+  as a write. On a read-only profile `readonly=2` still stopped it at the server, but the
+  extension's own check — the first of the two it promises — passed it through.
+
+  The default is now inverted. A statement is a read only if it leads with one of `SELECT`,
+  `WITH`, `FROM`, `VALUES`, `EXPLAIN`, `DESCRIBE`, `DESC`, `SHOW`, `EXISTS` or `CHECK`;
+  everything else is a write unless it is already known to be destructive. `DELETE` joins the
+  destructive list beside `ALTER … DELETE`. ClickHouse adds statements every month, and the
+  old shape meant every one of them arrived pre-classified as harmless.
+
+- **Valid 26.8 and 26.9 syntax was underlined as an error.** Four cases, each now parsed:
+  the PostgreSQL-style regex operators `~`, `~*`, `!~` and `!~*`; `LIMIT n AFTER cond`;
+  `LIMIT AFTER cond ALL UNTIL cond`; and `REFRESH … APPEND INCREMENTAL` on a materialized
+  view. The refresh clause had never parsed — refreshable views have existed since 23.12.
+
+- **The catalog generator silently dropped the log tables.** ClickHouse creates `query_log`,
+  `part_log`, `trace_log` and the rest lazily, on first flush, so reading the catalog from a
+  freshly started container lost all ten of them — the tables the profiler and every runbook
+  lean on hardest. The generator now writes a part, runs a sampled query, flushes, and
+  **refuses to write a catalog** that is still missing any of them. A regression test covers it.
+
+### Added
+
+- **Table functions.** All 95 of them, read from `system.table_functions`, which the generator
+  never used to query: `s3`, `iceberg`, `deltaLake`, `remote`, `url`, `numbers`, `bigquery` and
+  the rest. They complete where a table belongs — after `FROM` and `JOIN`, never in a `SELECT`
+  list — and hover gives the signature, plus a note when one cannot be used on a read-only
+  connection.
+
+- **Three tools for agent mode.** Copilot — or anything that speaks VS Code's language model
+  tool API — can use the connection you already configured: `#chquery` runs a query,
+  `#chtables` lists tables, `#chdescribe` shows columns. **An agent may only read.** A profile
+  with `allowWrite` lets a person write after a confirmation they can see; nothing an agent
+  sends is seen first, so the tools refuse every write whatever the profile permits, and
+  `readonly` goes with the request so the server refuses it too.
+
+### Changed
+
+- **Catalog regenerated from ClickHouse 26.9.19.9**, up from 26.7.5.10. Functions 1858 → 1918,
+  settings 2071 → 2226, keywords 647 → 660, formats 112 → 114, system tables 134 → 155. The
+  previous catalog was cut one day before 26.8 LTS shipped, so it had missed two releases.
+
+- **VS Code 1.95 is now the minimum**, up from 1.86. The language model tool API lands there.
+
+- **CI runs against pinned ClickHouse versions**, 26.9 and 26.8 LTS, instead of `latest`.
+  `latest` meant the integration tests quietly moved to whatever shipped that week — for the
+  last seven of them, a server two releases newer than the catalog being tested.
+
+### Internal
+
+- **A flaky scale test now asserts the property instead of the clock.** `scrolls in constant
+  time` put a stopwatch around twenty scroll jumps and failed above 2s. It read 0.2s run alone
+  and 4s under a loaded suite, with identical code. It now asserts what windowing actually
+  claims — that the rendered window does not grow with the row count — by scrolling a thousand
+  rows and a million and comparing the nodes. Instant, and it cannot race. Verified by
+  mutation: widening the window by one node per 20k rows fails it at 98 against a bound of 80.
+
 ## [2.3.1] - 2026-08-30
 
 ### Fixed

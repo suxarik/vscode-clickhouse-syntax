@@ -106,14 +106,36 @@ is written out but **commented** — nothing is applied for you.
 in front of it, and an `AggregatingMergeTree` rollup with its materialized view,
 in the order they have to run.
 
+### 🤖 Hand it to an agent
+
+Copilot agent mode — and anything else that speaks VS Code's tool API — can use
+the connection you already configured, through three tools:
+
+| Tool | `#` reference | What it does |
+| --- | --- | --- |
+| Run a ClickHouse query | `#chquery` | Runs a **read-only** query and returns the rows |
+| List ClickHouse tables | `#chtables` | Databases, tables, engines and row counts |
+| Describe a ClickHouse table | `#chdescribe` | Columns, types, defaults and comments |
+
+**An agent may only read.** A profile with `allowWrite` lets *you* write, after a
+confirmation you can see; nothing an agent sends is seen before it runs, so the
+tools refuse every write — `INSERT`, `ALTER`, `DROP`, `DELETE`, `UPDATE`,
+`SYSTEM` — whatever the profile permits. The same parse-tree classification
+guards it, and `readonly` goes with the request regardless, so the server
+refuses it too. There is no second credential path: it is your profile, your
+password in the OS keychain, your row cap.
+
 ### ✍️ Write the SQL
 
 - **Scope-aware completion.** `e.` offers the columns of whatever `e` aliases,
   through CTEs and subqueries. Clause-specific lists: settings inside `SETTINGS`,
   formats after `FORMAT`, engines after `ENGINE =`. Silent inside strings and
   comments.
-- **The `system` database is built in** — `FROM system.` completes all 134
+- **The `system` database is built in** — `FROM system.` completes all 155
   system tables and their columns with no configuration at all.
+- **Table functions** — `FROM s3(…)`, `iceberg(…)`, `remote(…)`, `numbers(…)`.
+  All 95 of them, with the signature on hover, and a note when one cannot be
+  used on a read-only connection.
 - **Hover** for any function: signature, description, return type, examples, and
   a link to the official docs.
 - **Signature help** while typing a call, with the active parameter highlighted.
@@ -183,10 +205,15 @@ Two checks run independently:
    string literal or a comment is not mistaken for one.
 2. `readonly=2` is sent with the request, so **ClickHouse refuses it too**.
 
-Destructive statements — `DROP`, `TRUNCATE`, `ALTER … DELETE`, `SYSTEM` — always
-confirm, naming the profile and the target. The active profile is always in the
-status bar. Credentials live in the OS credential store and are sent as headers,
-never in the URL. Connections are disabled in restricted-mode workspaces.
+A statement this extension has never heard of counts as a **write**, not a read.
+ClickHouse adds statements every month, and a new one must not arrive already
+classified as harmless.
+
+Destructive statements — `DROP`, `TRUNCATE`, `DELETE FROM`, `ALTER … DELETE`,
+`SYSTEM` — always confirm, naming the profile and the target. The active
+profile is always in the status bar. Credentials live in the OS credential
+store and are sent as headers, never in the URL. Connections are disabled in
+restricted-mode workspaces.
 
 A notebook cell goes through **the same code**, so a runbook cannot become a way
 around any of this.
@@ -204,12 +231,13 @@ IntelliSense can never disagree.
 
 | Catalog | Entries |
 | --- | --- |
-| functions | 1858 (1630 documented) |
-| data types | 140 |
+| functions | 1918 (1683 documented) |
+| table functions | 95 |
+| data types | 141 |
 | table engines | 83 |
-| settings | 2071 |
-| formats | 112 |
-| `system` tables | 134 |
+| settings | 2226 |
+| formats | 114 |
+| `system` tables | 155 |
 
 **ClickHouse: Show Catalog Info** reports which server version the shipped
 catalog came from.
@@ -271,7 +299,7 @@ silently rewrites a document's language.
 
 ## Requirements
 
-- VS Code **1.86** or newer.
+- VS Code **1.95** or newer.
 - ClickHouse **22.x** or newer for the query features. The language features work
   with no server at all.
 - Works in [vscode.dev](https://vscode.dev) — there is a web build, and HTTP is
