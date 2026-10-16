@@ -2,7 +2,7 @@
  * Tests for the explorer tree, schema cache naming, history and server validation.
  */
 import * as vscode from 'vscode';
-import { ExplorerProvider, engineIcon, qualifiedName } from '../client/explorerView';
+import { ExplorerNode, ExplorerProvider, engineIcon, qualifiedName } from '../client/explorerView';
 import { previewStatement } from '../client/explorerCommands';
 import { ConnectionManager } from '../client/connectionManager';
 import { cacheFileName, isStale } from '../client/schemaSync';
@@ -59,9 +59,12 @@ describe('explorer tree', () => {
         return { explorer: new ExplorerProvider(schemaManager, connections), connections };
     }
 
-    it('lists databases at the root', () => {
+    it('lists the server and then its databases at the root', () => {
         const { explorer } = makeExplorer();
-        expect(explorer.getChildren()).toEqual([{ kind: 'database', name: 'analytics' }]);
+        expect(explorer.getChildren()).toEqual([
+            { kind: 'server' },
+            { kind: 'database', name: 'analytics' },
+        ]);
     });
 
     it('lists a database\'s tables, sorted', () => {
@@ -441,5 +444,75 @@ describe('engineIcon', () => {
         // A map that quietly fell back for most engines would pass a
         // "returns a string" check and still show one icon everywhere.
         expect(unrecognised.length).toBeLessThan(engines.length / 3);
+    });
+});
+
+describe('the server at the top of the explorer', () => {
+    /** An explorer whose server shape has already been answered. */
+    function explorerKnowing(shape: { cluster: string; hosts: number } | undefined) {
+        const schemaManager = {
+            getSchema: () => ({ databases: [{ name: 'demo', tables: [] }] }),
+            getTables: () => [],
+            onDidChangeSchema: () => ({ dispose: () => undefined }),
+        } as unknown as SchemaManager;
+
+        const explorer = new ExplorerProvider(schemaManager, {
+            activeProfileName: () => 'local',
+            client: async () => undefined,
+        } as unknown as ConnectionManager);
+
+        (explorer as unknown as { serverShape?: unknown }).serverShape = { profile: 'local', cluster: shape };
+        return explorer;
+    }
+
+    it('puts the server above the databases', () => {
+        const children = explorerKnowing(undefined).getChildren();
+        expect(children[0]).toMatchObject({ kind: 'server' });
+        expect(children.slice(1).every(node => node.kind === 'database')).toBe(true);
+    });
+
+    it('shows nothing extra when there is no schema, so the welcome can offer to connect', () => {
+        const explorer = new ExplorerProvider(
+            {
+                getSchema: () => null,
+                getTables: () => [],
+                onDidChangeSchema: () => ({ dispose: () => undefined }),
+            } as unknown as SchemaManager,
+            { activeProfileName: () => 'local', client: async () => undefined } as unknown as ConnectionManager
+        );
+        expect(explorer.getChildren()).toEqual([]);
+    });
+
+    it('draws a single node differently from a cluster', () => {
+        const single = explorerKnowing(undefined).getChildren()[0];
+        const clustered = explorerKnowing({ cluster: 'analytics', hosts: 4 }).getChildren()[0];
+
+        const iconOf = (node: ExplorerNode, explorer: ExplorerProvider) =>
+            (explorer.getTreeItem(node).iconPath as vscode.ThemeIcon).id;
+
+        expect(iconOf(single, explorerKnowing(undefined))).toBe('server');
+        expect(iconOf(clustered, explorerKnowing({ cluster: 'analytics', hosts: 4 }))).toBe('type-hierarchy');
+    });
+
+    it('says what the server is, beside its name', () => {
+        const explorer = explorerKnowing({ cluster: 'analytics', hosts: 4 });
+        const item = explorer.getTreeItem(explorer.getChildren()[0]);
+
+        expect(item.label).toBe('local');
+        expect(String(item.description)).toContain('analytics');
+        expect(String(item.description)).toContain('4');
+    });
+
+    it('calls a single node a single node rather than leaving it blank', () => {
+        const explorer = explorerKnowing(undefined);
+        expect(String(explorer.getTreeItem(explorer.getChildren()[0]).description)).toContain('single node');
+    });
+
+    it('marks a cluster so the menu can offer to show it', () => {
+        const clustered = explorerKnowing({ cluster: 'analytics', hosts: 4 });
+        const single = explorerKnowing(undefined);
+
+        expect(clustered.getTreeItem(clustered.getChildren()[0]).contextValue).toBe('clickhouse.cluster');
+        expect(single.getTreeItem(single.getChildren()[0]).contextValue).toBe('clickhouse.server');
     });
 });

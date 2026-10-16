@@ -13,6 +13,7 @@ import { ConnectionManager } from './connectionManager';
 import { TableStatistics, tableStatistics } from './introspection';
 
 export type ExplorerNode =
+    | { kind: 'server' }
     | { kind: 'database'; name: string }
     | { kind: 'table'; database: string; table: SchemaTable }
     | { kind: 'column'; database: string; table: string; column: SchemaColumn };
@@ -82,6 +83,14 @@ export class ExplorerProvider implements vscode.TreeDataProvider<ExplorerNode> {
 
     private statistics = new Map<string, TableStatistics>();
     private statisticsProfile: string | undefined;
+    /**
+     * Whether the server we are connected to is one node or several.
+     *
+     * A single node still reports a `default` cluster containing only itself,
+     * so the question is not whether a cluster exists but whether one has more
+     * than one host in it.
+     */
+    private serverShape?: { profile: string; cluster?: { cluster: string; hosts: number } };
 
     private readonly subscription: vscode.Disposable;
 
@@ -105,11 +114,59 @@ export class ExplorerProvider implements vscode.TreeDataProvider<ExplorerNode> {
     reset(): void {
         this.statistics.clear();
         this.statisticsProfile = undefined;
+        this.serverShape = undefined;
         this.refresh();
+    }
+
+    /** One query, the first time the tree is drawn for a profile. */
+    private async loadServerShape(): Promise<void> {
+        const profile = this.connections.activeProfileName();
+        if (!profile || this.serverShape?.profile === profile) return;
+
+        this.serverShape = { profile };
+        const client = await this.connections.client(profile);
+        if (!client) return;
+
+        try {
+            const answer = await client.query(
+                'SELECT cluster, count() AS hosts FROM system.clusters ' +
+                    'GROUP BY cluster HAVING hosts > 1 ORDER BY hosts DESC LIMIT 1',
+                { readOnly: true, maxExecutionTime: 10 }
+            );
+            const row = answer.rows[0];
+            if (row) {
+                this.serverShape = {
+                    profile,
+                    cluster: { cluster: String(row[0] ?? ''), hosts: Number(row[1] ?? 0) },
+                };
+                this.refresh();
+            }
+        } catch {
+            // A user without rights on system.clusters still gets a usable tree.
+        }
     }
 
     getTreeItem(node: ExplorerNode): vscode.TreeItem {
         switch (node.kind) {
+            case 'server': {
+                const profile = this.connections.activeProfileName() ?? 'ClickHouse';
+                const cluster = this.serverShape?.cluster;
+                const item = new vscode.TreeItem(profile, vscode.TreeItemCollapsibleState.None);
+
+                item.iconPath = new vscode.ThemeIcon(cluster ? 'type-hierarchy' : 'server');
+                item.description = cluster
+                    ? `${cluster.cluster} · ${cluster.hosts} nodes`
+                    : 'single node';
+                item.contextValue = cluster ? 'clickhouse.cluster' : 'clickhouse.server';
+                if (cluster) {
+                    item.command = { command: 'clickhouse.showCluster', title: 'Show Cluster' };
+                    item.tooltip = `Connected to ${profile}, one node of the ${cluster.cluster} cluster`;
+                } else {
+                    item.tooltip = `Connected to ${profile}, which reports no cluster`;
+                }
+                return item;
+            }
+
             case 'database': {
                 const item = new vscode.TreeItem(node.name, vscode.TreeItemCollapsibleState.Collapsed);
                 item.iconPath = new vscode.ThemeIcon('database');
@@ -173,9 +230,14 @@ export class ExplorerProvider implements vscode.TreeDataProvider<ExplorerNode> {
             // can offer "Add Connection" rather than stating a dead end.
             if (!schema || schema.databases.length === 0) return [];
             void this.loadStatistics();
-            return schema.databases
-                .map(database => ({ kind: 'database' as const, name: database.name }))
-                .sort((a, b) => a.name.localeCompare(b.name));
+            void this.loadServerShape();
+
+            return [
+                { kind: 'server' as const },
+                ...schema.databases
+                    .map(database => ({ kind: 'database' as const, name: database.name }))
+                    .sort((a, b) => a.name.localeCompare(b.name)),
+            ];
         }
 
         if (node.kind === 'database') {

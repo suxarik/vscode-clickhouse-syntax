@@ -561,6 +561,11 @@
           "command": "clickhouse.copyQualifiedName",
           "when": "view == clickhouseExplorer",
           "group": "3_copy"
+        },
+        {
+          "command": "clickhouse.showCluster",
+          "when": "view == clickhouseExplorer && viewItem == clickhouse.cluster",
+          "group": "inline"
         }
       ],
       "notebook/cell/title": [
