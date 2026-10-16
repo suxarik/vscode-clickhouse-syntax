@@ -148,3 +148,52 @@ describe('gate', () => {
         expect(decision.action === 'confirm' && decision.message).not.toContain('2 statements');
     });
 });
+
+describe('classifyStatement — statements the parser does not model', () => {
+    it('treats a lightweight DELETE as destructive, like ALTER … DELETE', () => {
+        expect(effect('DELETE FROM events WHERE user_id = 42')).toBe('destructive');
+    });
+
+    it('treats a lightweight UPDATE as a write, like ALTER … UPDATE', () => {
+        expect(effect('UPDATE events SET status = 1 WHERE id = 7')).toBe('write');
+    });
+
+    it('treats UNDROP as a write', () => {
+        expect(effect('UNDROP TABLE events')).toBe('write');
+    });
+
+    it('treats a statement it has never heard of as a write, not a read', () => {
+        // ClickHouse adds statements every month. An unknown one must not be
+        // assumed harmless, or every future release opens a hole.
+        expect(effect('REWIND TABLE events TO 5')).toBe('write');
+    });
+
+    it('keeps pipeline syntax a read', () => {
+        expect(effect('FROM events |> WHERE user_id = 42 |> SELECT count()')).toBe('read');
+    });
+});
+
+describe('gate — modern DML', () => {
+    const forSql = (sql: string, options: { allowWrite?: boolean; isProtected?: boolean } = {}) =>
+        gate({
+            summaries: classify(sql),
+            allowWrite: options.allowWrite ?? false,
+            isProtected: options.isProtected ?? false,
+            profileName: 'prod',
+        });
+
+    it('refuses a lightweight DELETE on a read-only profile', () => {
+        expect(forSql('DELETE FROM events WHERE id = 1').action).toBe('refuse');
+    });
+
+    it('requires the profile name typed before a DELETE on a protected profile', () => {
+        const decision = forSql('DELETE FROM events WHERE id = 1', { allowWrite: true, isProtected: true });
+        expect(decision.action).toBe('confirmTyped');
+    });
+
+    it('confirms a DELETE on a writable profile rather than running it silently', () => {
+        const decision = forSql('DELETE FROM events WHERE id = 1', { allowWrite: true });
+        expect(decision.action).toBe('confirm');
+        expect(decision.action === 'confirm' && decision.message).toContain('cannot be undone');
+    });
+});
