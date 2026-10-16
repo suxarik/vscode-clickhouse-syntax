@@ -148,6 +148,20 @@ export class ExplorerProvider implements vscode.TreeDataProvider<ExplorerNode> {
         }
     }
 
+    /**
+     * The colour a writable connection is marked in.
+     *
+     * VS Code will not colour a tree item's description, so the icon carries
+     * it: on a profile that may write, every engine icon and the server itself
+     * turn ClickHouse orange. It is worth knowing before anyone types, not
+     * after a confirmation dialog appears.
+     */
+    private writableTint(): vscode.ThemeColor | undefined {
+        return this.connections.activeProfile()?.allowWrite === true
+            ? new vscode.ThemeColor('clickhouse.writable')
+            : undefined;
+    }
+
     getTreeItem(node: ExplorerNode): vscode.TreeItem {
         switch (node.kind) {
             case 'server': {
@@ -157,10 +171,14 @@ export class ExplorerProvider implements vscode.TreeDataProvider<ExplorerNode> {
                 // them behind a click that was not there before.
                 const item = new vscode.TreeItem(profile, vscode.TreeItemCollapsibleState.Expanded);
 
-                item.iconPath = new vscode.ThemeIcon(cluster ? 'type-hierarchy' : 'server');
-                item.description = cluster
-                    ? `${cluster.cluster} · ${cluster.hosts} nodes`
-                    : 'single node';
+                const tint = this.writableTint();
+                item.iconPath = new vscode.ThemeIcon(cluster ? 'type-hierarchy' : 'server', tint);
+                item.description = [
+                    cluster ? `${cluster.cluster} · ${cluster.hosts} nodes` : 'single node',
+                    tint ? 'writable' : undefined,
+                ]
+                    .filter(Boolean)
+                    .join(' · ');
                 item.contextValue = cluster ? 'clickhouse.cluster' : 'clickhouse.server';
                 if (cluster) {
                     item.command = { command: 'clickhouse.showCluster', title: 'Show Cluster' };
@@ -182,7 +200,7 @@ export class ExplorerProvider implements vscode.TreeDataProvider<ExplorerNode> {
 
             case 'table': {
                 const item = new vscode.TreeItem(node.table.name, vscode.TreeItemCollapsibleState.Collapsed);
-                item.iconPath = new vscode.ThemeIcon(engineIcon(node.table.engine));
+                item.iconPath = new vscode.ThemeIcon(engineIcon(node.table.engine), this.writableTint());
                 item.contextValue = 'clickhouse.table';
 
                 const stats = this.statistics.get(`${node.database}.${node.table.name}`);

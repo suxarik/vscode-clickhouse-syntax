@@ -2,7 +2,7 @@
   "name": "clickhouse-syntax",
   "displayName": "ClickHouse SQL \u2014 IDE & Runbooks",
   "description": "Run, explain and profile ClickHouse queries without leaving the editor. Result grid, incident runbooks, dbt models, schema migrations.",
-  "version": "2.5.3",
+  "version": "2.5.4",
   "publisher": "SuXarikisme",
   "icon": "images/clickhouse.png",
   "engines": {
@@ -1204,6 +1204,18 @@
           "required": [
             "table"
           ]
+        }
+      }
+    ],
+    "colors": [
+      {
+        "id": "clickhouse.writable",
+        "description": "Marks a connection that is allowed to write. ClickHouse orange by default.",
+        "defaults": {
+          "dark": "#FF9900",
+          "light": "#C76A00",
+          "highContrast": "#FFAA33",
+          "highContrastLight": "#A35400"
         }
       }
     ]

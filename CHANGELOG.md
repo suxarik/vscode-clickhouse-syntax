@@ -2,7 +2,7 @@
 
 All notable changes to this extension will be documented in this file.
 
-## [2.5.3] - 2026-10-16
+## [2.5.4] - 2026-10-16
 
 ### Added
 
@@ -17,6 +17,12 @@ All notable changes to this extension will be documented in this file.
 
   It runs last, after the plan and the rest of the findings, and costs nothing on a
   single node: a query that ran in one place returns nothing and nothing is shown.
+
+- **The explorer says when a connection may write.** On a profile with `allowWrite`,
+  every engine icon and the server itself turn ClickHouse orange, and the server says
+  "writable" in words beside it. Read-only profiles are left plain, which is the default
+  and the quiet case. The colour is contributed as `clickhouse.writable`, so a theme can
+  change it.
 
 - **A cluster, as a map.** "ClickHouse: Show Cluster" draws shards across and replicas
   down, with the findings beside it: a host that did not answer, a shard short of

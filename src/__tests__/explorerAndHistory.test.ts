@@ -12,6 +12,7 @@ import { QueryCapable } from '../client/introspection';
 import { QueryResult } from '../client/types';
 import { makeCatalog, makeSchemaManager } from './helpers';
 import { SchemaManager } from '../schemaManager';
+import { SchemaTable } from '../types';
 
 function makeContext() {
     const state: Record<string, unknown> = {};
@@ -376,6 +377,7 @@ describe('the explorer and a schema that arrives later', () => {
         const schemaManager = await makeSchemaManager();
         const explorer = new ExplorerProvider(schemaManager, {
             activeProfileName: () => 'local',
+            activeProfile: () => ({ name: 'local', host: 'localhost' }),
             client: async () => undefined,
         } as unknown as ConnectionManager);
 
@@ -474,6 +476,7 @@ describe('the server at the top of the explorer', () => {
 
         const explorer = new ExplorerProvider(schemaManager, {
             activeProfileName: () => 'local',
+            activeProfile: () => ({ name: 'local', host: 'localhost' }),
             client: async () => undefined,
         } as unknown as ConnectionManager);
 
@@ -528,5 +531,53 @@ describe('the server at the top of the explorer', () => {
 
         expect(clustered.getTreeItem(clustered.getChildren()[0]).contextValue).toBe('clickhouse.cluster');
         expect(single.getTreeItem(single.getChildren()[0]).contextValue).toBe('clickhouse.server');
+    });
+});
+
+describe('marking a connection that can write', () => {
+    function explorerOn(allowWrite: boolean) {
+        const schemaManager = {
+            getSchema: () => ({ databases: [{ name: 'demo', tables: [] }] }),
+            getTables: () => [],
+            onDidChangeSchema: () => ({ dispose: () => undefined }),
+        } as unknown as SchemaManager;
+
+        return new ExplorerProvider(schemaManager, {
+            activeProfileName: () => 'local',
+            activeProfile: () => ({ name: 'local', host: 'localhost', allowWrite }),
+            client: async () => undefined,
+        } as unknown as ConnectionManager);
+    }
+
+    const table: ExplorerNode = {
+        kind: 'table',
+        database: 'demo',
+        table: { name: 'events', engine: 'MergeTree', columns: [] } as unknown as SchemaTable,
+    };
+
+    it('leaves a read-only connection alone', () => {
+        const icon = explorerOn(false).getTreeItem(table).iconPath as vscode.ThemeIcon;
+        expect(icon.id).toBe('layers');
+        expect(icon.color).toBeUndefined();
+    });
+
+    it('marks a writable one, because that is worth knowing before you type', () => {
+        const icon = explorerOn(true).getTreeItem(table).iconPath as vscode.ThemeIcon;
+        expect(icon.id).toBe('layers');
+        expect((icon.color as vscode.ThemeColor).id).toBe('clickhouse.writable');
+    });
+
+    it('marks the server too, so it is seen before any table is', () => {
+        const writable = explorerOn(true).getTreeItem({ kind: 'server' }).iconPath as vscode.ThemeIcon;
+        const readOnly = explorerOn(false).getTreeItem({ kind: 'server' }).iconPath as vscode.ThemeIcon;
+
+        expect((writable.color as vscode.ThemeColor).id).toBe('clickhouse.writable');
+        expect(readOnly.color).toBeUndefined();
+    });
+
+    it('says so in words as well as colour', () => {
+        const item = explorerOn(true).getTreeItem({ kind: 'server' });
+        expect(String(item.description)).toContain('writable');
+        expect(String(explorerOn(false).getTreeItem({ kind: 'server' }).description)).not.toContain('writable');
     });
 });
