@@ -106,6 +106,43 @@ describe('PlanView', () => {
         expect(graphButton.className).toContain('ch-on');
     });
 
+    it('labels each edge with the rows crossing it', () => {
+        const { root, send } = mount();
+        send({ type: 'plan', payload: payload() });
+        ([...root.querySelectorAll('.ch-views button')].find(b => b.textContent === 'Graph') as HTMLButtonElement).click();
+
+        const labels = [...root.querySelectorAll('.ch-canvas text')].map(t => t.textContent ?? '');
+        expect(labels.some(text => /\d/.test(text))).toBe(true);
+        expect(root.querySelectorAll('.ch-canvas path.ch-edge').length).toBeGreaterThan(0);
+    });
+
+    it('points each edge at the step it feeds', () => {
+        const { root, send } = mount();
+        send({ type: 'plan', payload: payload() });
+        ([...root.querySelectorAll('.ch-views button')].find(b => b.textContent === 'Graph') as HTMLButtonElement).click();
+
+        // Rows flow from the producer up into its consumer, and the drawing
+        // should say which end is which without the reader inferring it.
+        const marker = root.querySelector('.ch-canvas marker')!;
+        // Edge weight carries row volume, from 1px to 6px. An arrowhead scaled
+        // by stroke width would therefore range over six times its own size.
+        expect(marker.getAttribute('markerUnits')).toBe('userSpaceOnUse');
+        const edges = [...root.querySelectorAll('.ch-canvas path.ch-edge')];
+        expect(edges.length).toBeGreaterThan(0);
+        expect(edges.every(edge => edge.getAttribute('marker-end'))).toBe(true);
+    });
+
+    it('numbers the steps so the graph has a reading order', () => {
+        const { root, send } = mount();
+        send({ type: 'plan', payload: payload() });
+        ([...root.querySelectorAll('.ch-views button')].find(b => b.textContent === 'Graph') as HTMLButtonElement).click();
+
+        const numbers = [...root.querySelectorAll('.ch-cell text')]
+            .map(t => Number(t.textContent))
+            .filter(value => Number.isInteger(value) && value > 0);
+        expect(numbers).toContain(1);
+    });
+
     it('marks the matching plan line when a step is selected', () => {
         const { root, send } = mount();
         send({ type: 'plan', payload: payload() });
@@ -157,6 +194,17 @@ describe('PlanView', () => {
         const summary = root.querySelector('.ch-summary')?.textContent ?? '';
         expect(summary).not.toContain('parallelism');
         expect(summary).toContain('waiting');
+    });
+
+    it('hatches only a step that did real work yet mostly waited', () => {
+        // Nearly every step in a pipeline waits on something. Hatching each one
+        // marks the whole drawing, which marks nothing.
+        const { root, send } = mount();
+        send({ type: 'plan', payload: payload() });
+
+        const bars = root.querySelectorAll('.ch-canvas .ch-cell').length;
+        const hatched = root.querySelectorAll('[fill="url(#ch-wait)"]').length;
+        expect(hatched).toBeLessThan(bars / 2);
     });
 
     it('hands the host SVG source to save', async () => {

@@ -282,3 +282,82 @@ describe('folding runs of negligible steps', () => {
         expect(flameLayout(graph, { foldBelow: 0 })).toHaveLength(graph.nodes.length);
     });
 });
+
+describe('emphasis', () => {
+    it('marks the one step that cost the most, not the whole chain', () => {
+        // In a pipeline the hot path runs through every step, so outlining the
+        // path outlines everything and says nothing. One bottleneck is the
+        // thing a reader is looking for.
+        const cells = flameLayout(
+            graphOf([
+                ['Sink_1', 5, []],
+                ['Middle_1', 20, ['Sink_1']],
+                ['Read_1', 300, ['Middle_1']],
+            ])
+        );
+
+        expect(cells.filter(cell => cell.bottleneck).map(cell => cell.id)).toEqual(['Read_1']);
+    });
+
+    it('marks the bottleneck in the node-link view too', () => {
+        const laid = dagLayout(
+            graphOf([
+                ['Sink_1', 5, []],
+                ['Heavy_1', 300, ['Sink_1']],
+            ])
+        );
+
+        expect(laid.nodes.filter(node => node.bottleneck).map(node => node.id)).toEqual(['Heavy_1']);
+    });
+
+    it('marks nothing when there is nothing to mark', () => {
+        expect(flameLayout(graphOf([['Only_1', 0, []]])).filter(cell => cell.bottleneck)).toHaveLength(0);
+    });
+});
+
+describe('reading a graph with several edges', () => {
+    const forked = (): PlanGraph =>
+        graphOf([
+            ['Join_1', 100, []],
+            ['ReadLeft_1', 400, ['Join_1']],
+            ['ReadRight_1', 300, ['Join_1']],
+        ]);
+
+    it('numbers the steps in execution order, the sources first', () => {
+        const laid = dagLayout(forked());
+        const order = (id: string): number => laid.nodes.find(node => node.id === id)!.order;
+
+        // The reads happen before the join that consumes them.
+        expect(order('ReadLeft_1')).toBeLessThan(order('Join_1'));
+        expect(order('ReadRight_1')).toBeLessThan(order('Join_1'));
+    });
+
+    it('gives the last step the highest number, so the order reads bottom to top', () => {
+        const laid = dagLayout(forked());
+        const highest = Math.max(...laid.nodes.map(node => node.order));
+        expect(laid.nodes.find(node => node.order === highest)!.id).toBe('Join_1');
+        expect(Math.min(...laid.nodes.map(node => node.order))).toBe(1);
+    });
+
+    it('lands each incoming edge on its own point, so they do not overlap', () => {
+        const edges = dagLayout(forked()).edges.filter(edge => edge.to === 'Join_1');
+        expect(edges).toHaveLength(2);
+        expect(edges.map(edge => edge.slot).sort()).toEqual([0, 1]);
+        expect(edges.every(edge => edge.slots === 2)).toBe(true);
+    });
+
+    it('gives a lone edge the whole width to land on', () => {
+        const laid = dagLayout(
+            graphOf([
+                ['Sink_1', 10, []],
+                ['Read_1', 90, ['Sink_1']],
+            ])
+        );
+        expect(laid.edges[0]).toMatchObject({ slot: 0, slots: 1 });
+    });
+
+    it('carries the rows crossing each edge, so they can be told apart', () => {
+        const laid = dagLayout(forked());
+        expect(laid.edges.every(edge => typeof edge.rows === 'number')).toBe(true);
+    });
+});

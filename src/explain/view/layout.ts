@@ -23,6 +23,8 @@ export interface FlameCell {
     /** The node's own CPU as a fraction of the whole. */
     selfShare: number;
     hot: boolean;
+    /** The single costliest step. Emphasis belongs in one place. */
+    bottleneck: boolean;
     /** Zero unless this row stands for a folded run of steps. */
     foldedCount: number;
     node: FoldedNode;
@@ -51,6 +53,7 @@ function subtreeCost(
 
 export function flameLayout(graph: PlanGraph, options: FoldOptions = {}): FlameCell[] {
     const folded = foldGraph(graph, options);
+    const bottleneck = heaviest(folded.nodes);
     const byId = new Map(folded.nodes.map(node => [node.id, node]));
     const memo = new Map<string, number>();
     const hot = new Set(folded.hotPath);
@@ -89,6 +92,7 @@ export function flameLayout(graph: PlanGraph, options: FoldOptions = {}): FlameC
                 width,
                 selfShare: total > 0 ? node.cpuUs / total : 0,
                 hot: hot.has(id),
+                bottleneck: id === bottleneck,
                 foldedCount: node.foldedCount,
                 node,
             });
@@ -232,6 +236,10 @@ function combine(runId: string, members: PlanGraphNode[]): FoldedNode {
 // ── Node-link layout ─────────────────────────────────────────────────────────
 
 export interface DagNode extends FoldedNode {
+    /** The single costliest step, marked for the same reason as in the flame. */
+    bottleneck: boolean;
+    /** Execution order, 1 for the first step. Sources run before their consumers. */
+    order: number;
     depth: number;
     /** All fractions of the drawing area. */
     x: number;
@@ -246,6 +254,10 @@ export interface DagEdge {
     from: string;
     to: string;
     rows: number;
+    /** Which landing point on the target, so converging edges do not overlap. */
+    slot: number;
+    /** How many edges share that target. */
+    slots: number;
 }
 
 export interface DagLayoutResult {
@@ -261,9 +273,12 @@ const LAYER_GAP = 0.9;
 export function dagLayout(graph: PlanGraph, options: FoldOptions = {}): DagLayoutResult {
     const folded = foldGraph(graph, options);
     const hot = new Set(folded.hotPath);
+    const bottleneck = heaviest(folded.nodes);
 
     const nodes: DagNode[] = folded.nodes.map(node => ({
         ...node,
+        bottleneck: node.id === bottleneck,
+        order: 0,
         depth: 0,
         x: 0,
         y: 0,
@@ -275,12 +290,33 @@ export function dagLayout(graph: PlanGraph, options: FoldOptions = {}): DagLayou
     assignDepths(nodes);
     position(nodes);
 
+    // Execution runs bottom-up: the deepest step produces first. Numbering it
+    // that way gives the graph a reading order, which a picture of boxes and
+    // lines otherwise leaves the reader to guess at.
+    [...nodes]
+        .sort((a, b) => b.depth - a.depth || a.x - b.x)
+        .forEach((node, index) => {
+            node.order = index + 1;
+        });
+
     const byId = new Map(nodes.map(node => [node.id, node]));
     const edges: DagEdge[] = [];
     for (const node of nodes) {
-        for (const from of node.inputs) {
-            edges.push({ from, to: node.id, rows: byId.get(from)?.outputRows ?? 0 });
-        }
+        // Each incoming edge gets its own landing point along the target's
+        // edge. Converging them all on the centre is what makes a join
+        // unreadable the moment it has more than one input.
+        const inputs = [...node.inputs].sort(
+            (a, b) => (byId.get(a)?.x ?? 0) - (byId.get(b)?.x ?? 0)
+        );
+        inputs.forEach((from, slot) => {
+            edges.push({
+                from,
+                to: node.id,
+                rows: byId.get(from)?.outputRows ?? 0,
+                slot,
+                slots: inputs.length,
+            });
+        });
     }
 
     return { nodes: nodes.sort((a, b) => a.depth - b.depth || a.x - b.x), edges };
@@ -337,4 +373,14 @@ function position(nodes: DagNode[]): void {
         });
         cursor += layerHeight.get(depth)! + LAYER_GAP;
     }
+}
+
+
+/** The costliest step, or nothing when no step cost anything. */
+function heaviest(nodes: FoldedNode[]): string | undefined {
+    let best: FoldedNode | undefined;
+    for (const node of nodes) {
+        if (node.cpuUs > 0 && (!best || node.cpuUs > best.cpuUs)) best = node;
+    }
+    return best?.id;
 }

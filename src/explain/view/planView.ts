@@ -21,6 +21,8 @@ const ROW = 26;
 const MIN_CANVAS = 560;
 /** Natural sizes: what "1:1" means, independent of the panel's width. */
 const FLAME_WIDTH = 1080;
+/** Arrowhead length in pixels, the same on every edge. */
+const ARROW = 11;
 const GRAPH_WIDTH = 860;
 
 type ViewKind = 'flame' | 'graph';
@@ -299,8 +301,12 @@ export class PlanView {
             height: ROW - 3,
             rx: 2,
             fill: withAlpha(this.palette.accent, heatAlpha(node.share)),
-            stroke: cell.id === this.selected ? this.palette.foreground : cell.hot ? this.palette.hot : 'none',
-            'stroke-width': cell.id === this.selected ? 1.5 : cell.hot ? 1 : 0,
+            stroke: cell.id === this.selected
+                ? this.palette.foreground
+                : cell.bottleneck
+                  ? this.palette.hot
+                  : 'none',
+            'stroke-width': cell.id === this.selected ? 1.5 : cell.bottleneck ? 1.5 : 0,
         });
         group.append(bar);
 
@@ -308,7 +314,11 @@ export class PlanView {
         // waited is idle, which is a different thing from a step that was cheap.
         const waited = node.inputWaitUs + node.outputWaitUs;
         const idle = waited / (waited + node.cpuUs || 1);
-        if (idle > 0.5 && w > 6) {
+        // Nearly everything in a pipeline waits on something, so idleness alone
+        // marks the whole drawing. What is worth marking is a step that did
+        // real work and *still* spent its life blocked — which is rare, and is
+        // the only case where the hatch tells a reader something new.
+        if (idle > 0.9 && node.share >= 0.05 && !cell.bottleneck && w > 6) {
             group.append(
                 element('rect', {
                     x,
@@ -360,9 +370,13 @@ export class PlanView {
         const height = Math.max(340, laid.nodes.length * 74);
 
         const svg = element('svg', { viewBox: `0 0 ${width} ${height}`, width, height });
-        svg.append(this.hatchPattern());
+        const defs = this.hatchPattern();
+        defs.append(this.arrowMarker());
+        svg.append(defs);
 
         const byId = new Map(laid.nodes.map(node => [node.id, node]));
+        const busiest = Math.max(1, ...laid.edges.map(edge => edge.rows));
+
         for (const edge of laid.edges) {
             const from = byId.get(edge.from);
             const to = byId.get(edge.to);
@@ -370,18 +384,60 @@ export class PlanView {
 
             const x1 = (from.x + from.width / 2) * width;
             const y1 = from.y * height;
-            const x2 = (to.x + to.width / 2) * width;
-            const y2 = (to.y + to.height) * height;
+            // Each edge lands on its own point across the target's lower edge,
+            // so two inputs arrive side by side instead of on top of each other.
+            const landing = (edge.slot + 1) / (edge.slots + 1);
+            const x2 = (to.x + to.width * landing) * width;
+            // The arrow's tip is its reference point, so the line ends a few
+            // pixels clear of the box and the head fills the gap exactly.
+            const y2 = (to.y + to.height) * height + 3;
+            const middle = (y1 + y2) / 2;
+
+            // Volume is carried twice over, in weight and in strength, so the
+            // heavier path still reads when several edges cross.
+            const weight = Math.max(0.08, edge.rows / busiest);
             const thickness = 1 + Math.min(5, Math.log10(Math.max(1, edge.rows)) * 1.1);
 
             svg.append(
                 element('path', {
-                    d: `M ${x1} ${y1} C ${x1} ${(y1 + y2) / 2}, ${x2} ${(y1 + y2) / 2}, ${x2} ${y2}`,
+                    d: `M ${x1} ${y1} C ${x1} ${middle}, ${x2} ${middle}, ${x2} ${y2}`,
                     fill: 'none',
-                    stroke: withAlpha(this.palette.foreground, 0.28),
+                    stroke: withAlpha(this.palette.foreground, 0.2 + 0.45 * weight),
                     'stroke-width': thickness.toFixed(2),
+                    'stroke-linecap': 'round',
+                    'marker-end': 'url(#ch-arrow)',
+                    class: 'ch-edge',
                 })
             );
+
+            if (edge.rows > 0) {
+                const label = formatCount(edge.rows);
+                const cx = (x1 + x2) / 2;
+                // A plate behind the number, or an edge crossing it makes it
+                // unreadable exactly where several edges meet.
+                svg.append(
+                    element('rect', {
+                        x: cx - label.length * 3.1 - 3,
+                        y: middle - 7,
+                        width: label.length * 6.2 + 6,
+                        height: 14,
+                        rx: 7,
+                        fill: this.palette.background,
+                        opacity: 0.88,
+                    })
+                );
+                const text = element('text', {
+                    x: cx,
+                    y: middle + 1,
+                    fill: this.palette.muted,
+                    'font-size': 9.5,
+                    'text-anchor': 'middle',
+                    'dominant-baseline': 'middle',
+                    class: 'ch-label',
+                });
+                text.textContent = label;
+                svg.append(text);
+            }
         }
 
         for (const node of laid.nodes) {
@@ -402,12 +458,22 @@ export class PlanView {
                     stroke:
                         node.id === this.selected
                             ? this.palette.foreground
-                            : node.hot
+                            : node.bottleneck
                               ? this.palette.hot
                               : withAlpha(this.palette.border, 0.9),
-                    'stroke-width': node.id === this.selected ? 1.5 : 1,
+                    'stroke-width': node.id === this.selected || node.bottleneck ? 1.5 : 1,
                 })
             );
+
+            const badge = element('text', {
+                x: x + 8,
+                y: y + 13,
+                fill: this.palette.muted,
+                'font-size': 9.5,
+                class: 'ch-label',
+            });
+            badge.textContent = String(node.order);
+            group.append(badge);
 
             const name = element('text', {
                 x: x + w / 2,
@@ -438,6 +504,36 @@ export class PlanView {
             svg.append(group);
         }
         return svg;
+    }
+
+    /**
+     * The arrowhead every edge ends in.
+     *
+     * Layout already puts producers below their consumers, but "below" is a
+     * convention a reader has to be told. An arrow states it.
+     */
+    private arrowMarker(): SVGMarkerElement {
+        const marker = element('marker', {
+            id: 'ch-arrow',
+            viewBox: '0 0 12 10',
+            // The tip, so it lands exactly on the end of the line.
+            refX: 12,
+            refY: 5,
+            markerWidth: ARROW,
+            markerHeight: ARROW * 0.84,
+            orient: 'auto',
+            // Fixed size. Edge weight carries row volume and runs from 1 to 6,
+            // so an arrowhead measured in stroke widths would swing over six
+            // times its own size from one edge to the next.
+            markerUnits: 'userSpaceOnUse',
+        });
+        marker.append(
+            element('path', {
+                d: 'M 0 0 L 12 5 L 0 10 L 2.6 5 Z',
+                fill: withAlpha(this.palette.foreground, 0.72),
+            })
+        );
+        return marker;
     }
 
     /** One diagonal hatch, reused by both drawings. */
