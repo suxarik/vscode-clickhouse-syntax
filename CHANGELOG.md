@@ -2,7 +2,7 @@
 
 All notable changes to this extension will be documented in this file.
 
-## [Unreleased]
+## [2.4.0] - 2026-10-16
 
 ### Added
 
@@ -27,6 +27,21 @@ All notable changes to this extension will be documented in this file.
   the profile permits. It runs with `FORMAT Null`: the server does the work and returns
   nothing, so no production rows are fetched to draw a picture of them.
 
+  The node-link view states its direction rather than implying it: every edge ends in
+  an arrowhead, carries the rows crossing it, and lands on its own point along the
+  target so converging edges stop overlapping. Steps are numbered in execution order,
+  sources first, so the graph has a reading order instead of leaving one to be inferred.
+
+  Emphasis is spent in one place. The hot path runs through every step of a pipeline,
+  so outlining it outlined everything; the costliest step alone is marked now. The wait
+  hatch had the same problem — nearly everything in a pipeline waits — so it is kept for
+  a step that did real work and *still* spent its life blocked, which is the only case
+  where it says something new.
+
+  An exported file carries a margin, and a background that covers it: the first and last
+  rows sat against the edge, and the background started inside the margin it was meant
+  to fill.
+
   **Runbooks get it too.** A query cell has an Analyze action that renders the same view
   in the cell's own output, through the same transport seam the result grid uses.
 
@@ -36,6 +51,12 @@ All notable changes to this extension will be documented in this file.
   waiting rather than calling it parallelism.
 
 ### Fixed
+
+- **An exported SVG would not open.** `XMLSerializer` emits `xmlns` for an element
+  already in the SVG namespace, and the exporter set it again as a plain attribute. Two
+  of them is not untidy XML, it is invalid XML: browsers refuse the file outright with
+  "duplicate attribute". The test asserted the namespace was present, which a duplicate
+  satisfies; it now asserts the markup parses, which is the actual contract.
 
 - **`DELETE FROM` and `UPDATE` were classified as reads.** The parser models neither, and
   anything it did not model fell through to `read` — so a lightweight `DELETE` ran with **no
