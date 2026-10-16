@@ -51,9 +51,25 @@ export function registerExplorerCommands(
             explorer.refresh();
         }),
 
+        // A preview is a query someone will want to change — add a WHERE, raise
+        // the limit, pick columns instead of every one. Running it with the
+        // text hidden makes the obvious next step impossible, so the statement
+        // is opened as SQL first and then run. Opened that way it inherits
+        // everything the editor already does: highlighting, completion, the
+        // linter, and Run, Explain and Analyze above the statement.
         vscode.commands.registerCommand('clickhouse.previewTable', async (node: ExplorerNode) => {
             if (node?.kind !== 'table') return;
-            await runGenerated(runner, analysisCache, previewStatement(node.database, node.table.name));
+
+            const sql = previewStatement(node.database, node.table.name);
+            const document = await vscode.workspace.openTextDocument({
+                content: `${sql}\n`,
+                language: 'clickhouse',
+            });
+            // Not a preview tab: that one is replaced by the next thing opened,
+            // which would take the query away as soon as anything else is clicked.
+            await vscode.window.showTextDocument(document, { preview: false });
+
+            await runGenerated(runner, analysisCache, sql);
         }),
 
         // The answer is a statement, not a result. Running it through the grid

@@ -2,7 +2,7 @@
 
 All notable changes to this extension will be documented in this file.
 
-## [2.5.5] - 2026-10-16
+## [2.5.6] - 2026-10-16
 
 ### Added
 
@@ -17,6 +17,13 @@ All notable changes to this extension will be documented in this file.
 
   It runs last, after the plan and the rest of the findings, and costs nothing on a
   single node: a query that ran in one place returns nothing and nothing is shown.
+
+- **Preview Rows shows the query it ran.** It opened a result and hid the statement,
+  which made the obvious next step — add a WHERE, raise the limit, pick columns instead
+  of every one — impossible. The statement now opens as a ClickHouse SQL document and
+  then runs, so it can be read, edited and run again. Opened that way it inherits what
+  the editor already does: highlighting, completion, the linter, and Run, Explain and
+  Analyze above the statement.
 
 - **The explorer says when a connection may write.** On a profile with `allowWrite`, the
   server, its databases and their tables turn ClickHouse orange, and the server says
