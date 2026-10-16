@@ -3,6 +3,7 @@
  */
 import { PlanGraph } from './graph';
 import { QuerySummary } from './profile';
+import { Finding } from '../advice/types';
 
 export type ImageFormat = 'svg' | 'png' | 'jpg';
 
@@ -23,6 +24,11 @@ export interface PlanPayload {
 export type PlanHostMessage =
     | { type: 'status'; message: string }
     | { type: 'plan'; payload: PlanPayload }
+    /**
+     * Sent after the plan, in batches, as the rules find things. `replace`
+     * swaps the list for an upgraded one, once a lazy lookup has returned.
+     */
+    | { type: 'findings'; findings: Finding[]; replace?: boolean }
     | { type: 'error'; message: string };
 
 export type PlanViewMessage =

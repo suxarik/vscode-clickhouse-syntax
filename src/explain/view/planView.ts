@@ -11,6 +11,7 @@
  * other would be a lie the picture would make very convincing.
  */
 import { PlanHostMessage, PlanPayload, PlanTransport, ImageFormat } from '../protocol';
+import { Finding } from '../../advice/types';
 import { FlameCell, dagLayout, flameLayout, DagLayoutResult } from './layout';
 import { Palette, heatColor, readPalette, withAlpha } from './palette';
 import { prepareSvgForExport, rasterize } from './exportImage';
@@ -71,6 +72,10 @@ export class PlanView {
     private readonly canvas: HTMLElement;
     private readonly summary: HTMLElement;
     private readonly legend: HTMLElement;
+    private readonly findingsPane: HTMLElement;
+    /** Built by `toolbar()`, which the constructor calls before anything uses it. */
+    private findingsToggle!: HTMLButtonElement;
+    private findings: Finding[] = [];
     private readonly tip: HTMLElement;
     private readonly buttons = new Map<ViewKind, HTMLButtonElement>();
 
@@ -102,9 +107,13 @@ export class PlanView {
         const planPane = html('div', 'ch-pane-plan');
         planPane.append(this.toolbar());
         this.canvas = html('div', 'ch-canvas');
+        this.findingsPane = html('div', 'ch-findings');
+        const body = html('div', 'ch-plan-body');
+        body.append(this.canvas, this.findingsPane);
+
         this.legend = html('div', 'ch-legend');
         this.summary = html('div', 'ch-summary');
-        planPane.append(this.canvas, this.legend, this.summary);
+        planPane.append(body, this.legend, this.summary);
 
         this.makePannable(this.canvas);
 
@@ -152,6 +161,15 @@ export class PlanView {
             zooms.append(button);
         }
 
+        this.findingsToggle = html('button', '', 'Findings') as HTMLButtonElement;
+        this.findingsToggle.title = 'What the measurements suggest';
+        this.findingsToggle.classList.add('ch-findings-toggle');
+        this.findingsToggle.addEventListener('click', () => {
+            this.findingsPane.classList.toggle('ch-open');
+        });
+        const findingsGroup = html('div', 'ch-views ch-zooms');
+        findingsGroup.append(this.findingsToggle);
+
         const exports = html('div', 'ch-export');
         exports.append(html('span', '', 'Save as'));
         for (const format of ['svg', 'png', 'jpg'] as ImageFormat[]) {
@@ -160,7 +178,7 @@ export class PlanView {
             exports.append(button);
         }
 
-        bar.append(views, zooms, exports);
+        bar.append(views, zooms, findingsGroup, exports);
         return bar;
     }
 
@@ -195,7 +213,17 @@ export class PlanView {
             return;
         }
 
+        if (message.type === 'findings') {
+            // Batches arrive as the rules find things, so they accumulate —
+            // until a lazy lookup returns with better versions of them.
+            this.findings = message.replace ? message.findings : [...this.findings, ...message.findings];
+            this.renderFindings();
+            return;
+        }
+
         this.payload = message.payload;
+        this.findings = [];
+        this.renderFindings();
         this.palette = readPalette();
         this.renderExplain(message.payload.explain);
         this.renderSummary(message.payload);
@@ -245,6 +273,49 @@ export class PlanView {
             from = undefined;
             canvas.classList.remove('ch-panning');
         });
+    }
+
+    /**
+     * What the measurements suggest.
+     *
+     * The list opens itself only for something important: a panel that springs
+     * open for every observation becomes a panel people close and never open
+     * again. The count on the toggle is how the quiet ones get noticed.
+     */
+    private renderFindings(): void {
+        this.findingsToggle.textContent = this.findings.length
+            ? `Findings ${this.findings.length}`
+            : 'Findings';
+
+        if (this.findings.length === 0) {
+            this.findingsPane.classList.remove('ch-open');
+            this.findingsPane.replaceChildren(
+                html('div', 'ch-findings-empty', 'Nothing worth reporting in this plan.')
+            );
+            return;
+        }
+
+        if (this.findings.some(finding => finding.importance === 'high')) {
+            this.findingsPane.classList.add('ch-open');
+        }
+
+        this.findingsPane.replaceChildren(
+            ...this.findings.map(finding => {
+                const item = html('div', `ch-finding ch-finding-${finding.importance}`);
+
+                const title = html('div', 'ch-finding-title');
+                title.append(
+                    html('span', 'ch-finding-mark', finding.importance === 'low' ? '●' : '▲'),
+                    html('b', '', finding.title)
+                );
+
+                item.append(title, html('div', 'ch-finding-evidence', finding.evidence));
+                if (finding.suggestion) {
+                    item.append(html('div', 'ch-finding-suggestion', finding.suggestion));
+                }
+                return item;
+            })
+        );
     }
 
     private show(kind: ViewKind): void {

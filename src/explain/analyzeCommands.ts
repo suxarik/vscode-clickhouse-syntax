@@ -16,12 +16,54 @@ import { buildPlanGraph } from './graph';
 import { collectProfile } from './profile';
 import { PlanPanel } from './panel';
 import { PLAN_MIME, PlanPayload } from './protocol';
+import { parsePlan, summarizePlan } from '../client/explain';
+import { advise } from '../advice/engine';
+import { enrichFindings } from '../advice/enrich';
 
 export function registerAnalyzeCommands(
     connections: ConnectionManager,
     analysisCache: AnalysisCache,
     panel: PlanPanel
 ): vscode.Disposable[] {
+    /** Abandons the advice of a plan that has been replaced. */
+    let adviceRun: AbortController | undefined;
+
+    /**
+     * Advice runs after the plan is on screen and is never awaited before it.
+     * The drawing is what was asked for; findings are a second opinion, and a
+     * second opinion that delays the first is worse than none.
+     */
+    async function adviseInBackground(payload: PlanPayload): Promise<void> {
+        adviceRun?.abort();
+        const run = new AbortController();
+        adviceRun = run;
+
+        const found = await advise(
+            {
+                sql: payload.sql,
+                program: parse(payload.sql).program,
+                graph: payload.graph,
+                plan: summarizePlan(parsePlan(payload.explain)),
+                summary: payload.summary,
+            },
+            {
+                signal: run.signal,
+                onFindings: findings => {
+                    if (!run.signal.aborted) panel.post({ type: 'findings', findings });
+                },
+            }
+        );
+
+        // The lookups that cost a query happen only now, and only for findings
+        // that actually want one.
+        if (run.signal.aborted || found.length === 0) return;
+        const client = await connections.client();
+        if (!client || run.signal.aborted) return;
+
+        const enriched = await enrichFindings(found, client, { signal: run.signal });
+        if (!run.signal.aborted) panel.post({ type: 'findings', findings: enriched, replace: true });
+    }
+
     return [
         panel,
 
@@ -165,8 +207,14 @@ export function registerAnalyzeCommands(
             async () => {
                 try {
                     const built = await buildPlan(sql);
-                    if (typeof built === 'string') panel.post({ type: 'error', message: built });
-                    else panel.showPlan(built);
+                    if (typeof built === 'string') {
+                        panel.post({ type: 'error', message: built });
+                    } else {
+                        panel.showPlan(built);
+                        void adviseInBackground(built).catch(error =>
+                            console.error('ClickHouse: advice failed', error)
+                        );
+                    }
                 } catch (error) {
                     const message = error instanceof Error ? error.message : String(error);
                     panel.post({ type: 'error', message: `The query failed: ${message}` });

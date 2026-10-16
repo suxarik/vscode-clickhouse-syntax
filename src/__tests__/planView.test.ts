@@ -225,6 +225,108 @@ describe('PlanView', () => {
         expect(sink?.textContent ?? '').not.toMatch(/\b0 rows\b/);
     });
 
+    it('keeps the findings out of the way when there are none', () => {
+        const { root, send } = mount();
+        send({ type: 'plan', payload: payload() });
+
+        expect(root.querySelector('.ch-findings.ch-open')).toBeNull();
+        expect(root.querySelector('.ch-findings-toggle')?.textContent ?? '').not.toMatch(/\d/);
+    });
+
+    it('lists what the measurements found, with the evidence for each', () => {
+        const { root, send } = mount();
+        send({ type: 'plan', payload: payload() });
+        send({
+            type: 'findings',
+            findings: [
+                {
+                    ruleId: 'no-index-pruning',
+                    importance: 'high',
+                    title: 'The index on demo.orders removed nothing',
+                    evidence: 'granules 2104/2104, parts 2/2',
+                    suggestion: 'A skip index on the filtered column would let ClickHouse skip granules.',
+                    subject: { kind: 'table', name: 'demo.orders' },
+                },
+            ],
+        });
+
+        const pane = root.querySelector('.ch-findings')?.textContent ?? '';
+        expect(pane).toContain('removed nothing');
+        expect(pane).toContain('2104/2104');
+        expect(pane).toContain('skip granules');
+    });
+
+    it('opens itself when something important was found', () => {
+        const { root, send } = mount();
+        send({ type: 'plan', payload: payload() });
+        send({
+            type: 'findings',
+            findings: [
+                { ruleId: 'a', importance: 'high', title: 'Something costly', evidence: '90% of CPU' },
+            ],
+        });
+
+        expect(root.querySelector('.ch-findings.ch-open')).not.toBeNull();
+        expect(root.querySelector('.ch-findings-toggle')?.textContent ?? '').toContain('1');
+    });
+
+    it('stays shut for something minor, but still says it is there', () => {
+        const { root, send } = mount();
+        send({ type: 'plan', payload: payload() });
+        send({
+            type: 'findings',
+            findings: [{ ruleId: 'a', importance: 'low', title: 'Worth knowing', evidence: '12%' }],
+        });
+
+        expect(root.querySelector('.ch-findings.ch-open')).toBeNull();
+        expect(root.querySelector('.ch-findings-toggle')?.textContent ?? '').toContain('1');
+    });
+
+    it('adds findings as they arrive rather than replacing them', () => {
+        const { root, send } = mount();
+        send({ type: 'plan', payload: payload() });
+        send({ type: 'findings', findings: [{ ruleId: 'a', importance: 'low', title: 'First', evidence: 'x' }] });
+        send({ type: 'findings', findings: [{ ruleId: 'b', importance: 'low', title: 'Second', evidence: 'y' }] });
+
+        const pane = root.querySelector('.ch-findings')?.textContent ?? '';
+        expect(pane).toContain('First');
+        expect(pane).toContain('Second');
+    });
+
+    it('swaps a finding for its upgraded self rather than listing it twice', () => {
+        const { root, send } = mount();
+        send({ type: 'plan', payload: payload() });
+        send({
+            type: 'findings',
+            findings: [{ ruleId: 'no-index-pruning', importance: 'high', title: 'Index removed nothing', evidence: 'granules 2104/2104' }],
+        });
+        send({
+            type: 'findings',
+            replace: true,
+            findings: [
+                {
+                    ruleId: 'no-index-pruning',
+                    importance: 'high',
+                    title: 'Index removed nothing',
+                    evidence: 'granules 2104/2104 · sorted by (user_id, created_at)',
+                },
+            ],
+        });
+
+        const pane = root.querySelector('.ch-findings')?.textContent ?? '';
+        expect(pane).toContain('sorted by');
+        expect(root.querySelectorAll('.ch-finding')).toHaveLength(1);
+    });
+
+    it('drops the old findings when a new plan arrives', () => {
+        const { root, send } = mount();
+        send({ type: 'plan', payload: payload() });
+        send({ type: 'findings', findings: [{ ruleId: 'a', importance: 'low', title: 'Stale', evidence: 'x' }] });
+        send({ type: 'plan', payload: payload() });
+
+        expect(root.querySelector('.ch-findings')?.textContent ?? '').not.toContain('Stale');
+    });
+
     it('says what the width means, since left to right is not time', () => {
         const { root, send } = mount();
         send({ type: 'plan', payload: payload() });

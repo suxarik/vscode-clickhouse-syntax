@@ -65,7 +65,29 @@ body {
 .ch-zooms { margin-left: 10px; }
 .ch-zooms button { min-width: 26px; }
 .ch-export { display: flex; gap: 2px; align-items: center; margin-left: auto; }
+.ch-plan-body { flex: 1; display: flex; min-height: 0; }
 .ch-canvas { flex: 1; overflow: auto; position: relative; cursor: grab; }
+
+.ch-findings {
+  display: none; flex: 0 0 300px; overflow: auto;
+  border-left: 1px solid var(--ch-border);
+  padding: 8px 10px 14px;
+}
+.ch-findings.ch-open { display: block; }
+.ch-finding { padding: 8px 0; border-bottom: 1px solid var(--ch-border); }
+.ch-finding:last-child { border-bottom: none; }
+.ch-finding-title { display: flex; gap: 7px; align-items: baseline; margin-bottom: 3px; }
+.ch-finding-title b { font-weight: 600; }
+.ch-finding-mark { flex: 0 0 auto; font-size: 10px; line-height: 1.6; }
+.ch-finding-high .ch-finding-mark { color: var(--vscode-charts-red, #f04438); }
+.ch-finding-medium .ch-finding-mark { color: var(--vscode-charts-orange, #ff9900); }
+.ch-finding-low .ch-finding-mark { color: var(--vscode-descriptionForeground); }
+.ch-finding-evidence {
+  font-variant-numeric: tabular-nums; color: var(--vscode-descriptionForeground);
+  font-size: 11px; margin-bottom: 4px;
+}
+.ch-finding-suggestion { font-size: 11px; line-height: 1.55; opacity: .92; }
+.ch-findings-empty { color: var(--vscode-descriptionForeground); font-size: 11px; }
 .ch-canvas.ch-panning { cursor: grabbing; }
 .ch-canvas.ch-panning .ch-cell { cursor: grabbing; }
 .ch-canvas svg { display: block; }

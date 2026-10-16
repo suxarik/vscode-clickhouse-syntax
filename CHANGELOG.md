@@ -2,7 +2,7 @@
 
 All notable changes to this extension will be documented in this file.
 
-## [2.4.3] - 2026-10-16
+## [2.4.4] - 2026-10-16
 
 ### Added
 
@@ -41,6 +41,24 @@ All notable changes to this extension will be documented in this file.
   An exported file carries a margin, and a background that covers it: the first and last
   rows sat against the edge, and the background started inside the margin it was meant
   to fill.
+
+  **Advice from the measurements, not the text.** A findings pane beside the drawing
+  says what this query, on this data, actually cost: an index that pruned nothing, an
+  exact distinct that took most of the CPU, a read that threw away almost everything it
+  fetched, the one step that dominated, a query that waited rather than computed. Every
+  finding carries the number that justifies it, because a severity without evidence is an
+  opinion wearing a badge.
+
+  It is lazy throughout. Advice never delays the plan: the drawing goes up first, rules
+  yield to the host between batches, findings appear as they are found, and a newer
+  Analyze abandons the run in flight. The lookups that cost a query happen last and only
+  for findings that want one — "the index removed nothing" appears immediately and
+  upgrades itself to "sorted by (user_id, created_at)" when the key arrives. One query
+  for all of them, and the finding stands on its own if it fails.
+
+  The pane opens itself only for something important. A panel that springs open for every
+  observation is a panel people close and never open again, so the quieter ones are
+  announced by a count on the toggle instead.
 
   **Runbooks get it too.** A query cell has an Analyze action that renders the same view
   in the cell's own output, through the same transport seam the result grid uses.
