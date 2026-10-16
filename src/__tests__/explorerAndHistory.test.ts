@@ -2,7 +2,7 @@
  * Tests for the explorer tree, schema cache naming, history and server validation.
  */
 import * as vscode from 'vscode';
-import { ExplorerProvider, qualifiedName } from '../client/explorerView';
+import { ExplorerProvider, engineIcon, qualifiedName } from '../client/explorerView';
 import { previewStatement } from '../client/explorerCommands';
 import { ConnectionManager } from '../client/connectionManager';
 import { cacheFileName, isStale } from '../client/schemaSync';
@@ -10,7 +10,7 @@ import { fetchProfile, QueryHistory } from '../client/history';
 import { parseErrorPosition } from '../client/liveDiagnostics';
 import { QueryCapable } from '../client/introspection';
 import { QueryResult } from '../client/types';
-import { makeSchemaManager } from './helpers';
+import { makeCatalog, makeSchemaManager } from './helpers';
 import { SchemaManager } from '../schemaManager';
 
 function makeContext() {
@@ -380,5 +380,66 @@ describe('the explorer and a schema that arrives later', () => {
         });
 
         expect(redrawn).toBeGreaterThan(0);
+    });
+});
+
+describe('engineIcon', () => {
+    it('tells the MergeTree variants apart, because they read differently', () => {
+        // A ReplacingMergeTree needs FINAL; a SummingMergeTree does not. The
+        // engine is already in the description, but an icon is what gets
+        // noticed while scanning a long list.
+        expect(engineIcon('MergeTree')).toBe('database');
+        expect(engineIcon('ReplacingMergeTree')).toBe('versions');
+        expect(engineIcon('SummingMergeTree')).toBe('graph');
+        expect(engineIcon('AggregatingMergeTree')).toBe('graph');
+        expect(engineIcon('CollapsingMergeTree')).toBe('fold');
+    });
+
+    it('treats a Replicated or Shared engine as the family it belongs to', () => {
+        expect(engineIcon('ReplicatedReplacingMergeTree')).toBe(engineIcon('ReplacingMergeTree'));
+        expect(engineIcon('SharedMergeTree')).toBe(engineIcon('MergeTree'));
+    });
+
+    it('separates the things that are not really tables', () => {
+        expect(engineIcon('View')).toBe('eye');
+        expect(engineIcon('MaterializedView')).toBe('zap');
+        expect(engineIcon('Dictionary')).toBe('book');
+        expect(engineIcon('Distributed')).toBe('type-hierarchy');
+        expect(engineIcon('Null')).toBe('circle-slash');
+    });
+
+    it('marks what the data actually lives somewhere else', () => {
+        for (const engine of ['S3', 'IcebergS3', 'DeltaLake', 'AzureBlobStorage', 'HDFS', 'URL', 'File']) {
+            expect(engineIcon(engine)).toBe('cloud');
+        }
+        for (const engine of ['MySQL', 'PostgreSQL', 'MongoDB', 'SQLite', 'Redis', 'BigQuery']) {
+            expect(engineIcon(engine)).toBe('plug');
+        }
+        for (const engine of ['Kafka', 'RabbitMQ', 'NATS', 'S3Queue']) {
+            expect(engineIcon(engine)).toBe('radio-tower');
+        }
+    });
+
+    it('falls back rather than leaving a table with no icon at all', () => {
+        expect(engineIcon('')).toBe('table');
+        expect(engineIcon(undefined)).toBe('table');
+        expect(engineIcon('SomethingClickHouseAddedLastWeek')).toBe('table');
+    });
+
+    it('resolves every engine this ClickHouse reports, mostly to something specific', () => {
+        const catalog = makeCatalog();
+        const engines = catalog.engines();
+        expect(engines.length).toBeGreaterThan(50);
+
+        const unrecognised: string[] = [];
+        for (const engine of engines) {
+            const icon = engineIcon(engine.name);
+            expect(icon.length).toBeGreaterThan(0);
+            if (icon === 'table') unrecognised.push(engine.name);
+        }
+
+        // A map that quietly fell back for most engines would pass a
+        // "returns a string" check and still show one icon everywhere.
+        expect(unrecognised.length).toBeLessThan(engines.length / 3);
     });
 });
