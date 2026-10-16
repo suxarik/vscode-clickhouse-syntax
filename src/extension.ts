@@ -119,7 +119,7 @@ export function activate(context: vscode.ExtensionContext) {
         liveDiagnostics,
         treeView,
         explorer,
-        ...registerExplorerCommands(explorer, queryRunner, analysisCache, schemaSync),
+        ...registerExplorerCommands(explorer, queryRunner, analysisCache, schemaSync, connections),
         ...registerExplainCommands(connections, analysisCache, explainProvider),
         ...registerHistoryCommands(queryHistory, queryRunner, connections, analysisCache, validator),
         ...registerNotebook(connections, queryRunner, analysisCache, context.extensionUri),

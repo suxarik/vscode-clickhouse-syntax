@@ -2,7 +2,7 @@
 
 All notable changes to this extension will be documented in this file.
 
-## [2.5.1] - 2026-10-16
+## [2.5.2] - 2026-10-16
 
 ### Added
 
@@ -136,6 +136,19 @@ All notable changes to this extension will be documented in this file.
   waiting rather than calling it parallelism.
 
 ### Fixed
+
+- **Show Create Table put the definition in a grid cell.** The answer to `SHOW CREATE
+  TABLE` is a statement, not a result: a dozen lines of DDL arrived as a single cell,
+  where the line breaks that make it readable are exactly what a cell cannot show. It
+  opens as a ClickHouse SQL document now, which is also what you want if the next step
+  is to edit it.
+
+- **Show Cluster was not in the right-click menu, and Preview Rows had no button.** Both
+  were contributed to the `inline` group, which is not the context menu: it is a button
+  drawn on the row from the command's icon, and neither command had one. The manifest
+  test now refuses an inline action with nothing to draw, checks the cluster entry is in
+  a menu group rather than only on hover, and checks every menu entry points at a
+  command that exists.
 
 - **`SYSTEM FLUSH LOGS` never ran.** `query` appends a FORMAT clause so it can read rows
   back, and a FORMAT clause after SYSTEM is a syntax error — so the flush failed every
