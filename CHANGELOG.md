@@ -2,7 +2,7 @@
 
 All notable changes to this extension will be documented in this file.
 
-## [2.5.0] - 2026-10-16
+## [2.5.1] - 2026-10-16
 
 ### Added
 
