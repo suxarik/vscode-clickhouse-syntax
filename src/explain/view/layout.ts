@@ -263,6 +263,14 @@ export interface DagEdge {
 export interface DagLayoutResult {
     nodes: DagNode[];
     edges: DagEdge[];
+    /**
+     * The vertical gap between layers, as a fraction of the drawing.
+     *
+     * The renderer needs it to pick a height: an arrowhead is a fixed number of
+     * pixels, so a drawing short enough to squeeze the gaps below that leaves
+     * the head nowhere to go and the line nothing to be.
+     */
+    gapFraction: number;
 }
 
 /** Shortest box that still fits a label, and the tallest we will draw. */
@@ -288,7 +296,7 @@ export function dagLayout(graph: PlanGraph, options: FoldOptions = {}): DagLayou
     }));
 
     assignDepths(nodes);
-    position(nodes);
+    const gapFraction = position(nodes);
 
     // Execution runs bottom-up: the deepest step produces first. Numbering it
     // that way gives the graph a reading order, which a picture of boxes and
@@ -319,7 +327,7 @@ export function dagLayout(graph: PlanGraph, options: FoldOptions = {}): DagLayou
         });
     }
 
-    return { nodes: nodes.sort((a, b) => a.depth - b.depth || a.x - b.x), edges };
+    return { nodes: nodes.sort((a, b) => a.depth - b.depth || a.x - b.x), edges, gapFraction };
 }
 
 /** A node sits one level below the deepest thing it feeds, so edges only descend. */
@@ -348,7 +356,7 @@ function assignDepths(nodes: DagNode[]): void {
 }
 
 /** Stack the layers, sizing each box by the CPU it stands for. */
-function position(nodes: DagNode[]): void {
+function position(nodes: DagNode[]): number {
     const units = (share: number): number => MIN_UNITS + (MAX_UNITS - MIN_UNITS) * Math.sqrt(Math.max(0, share));
 
     const layers = new Map<number, DagNode[]>();
@@ -373,6 +381,8 @@ function position(nodes: DagNode[]): void {
         });
         cursor += layerHeight.get(depth)! + LAYER_GAP;
     }
+
+    return totalUnits > 0 ? LAYER_GAP / totalUnits : 0;
 }
 
 

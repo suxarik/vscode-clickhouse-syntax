@@ -23,6 +23,10 @@ const MIN_CANVAS = 560;
 const FLAME_WIDTH = 1080;
 /** Arrowhead length in pixels, the same on every edge. */
 const ARROW = 11;
+/** How far the tip rests from the box it points at. */
+const ARROW_GAP = 3;
+/** Pixels a layer gap must have for an arrow and a visible line to fit in it. */
+const ARROW_ROOM = 38;
 const GRAPH_WIDTH = 860;
 
 type ViewKind = 'flame' | 'graph';
@@ -367,7 +371,11 @@ export class PlanView {
     private drawGraph(): SVGSVGElement {
         const laid: DagLayoutResult = dagLayout(this.payload!.graph);
         const width = this.width();
-        const height = Math.max(340, laid.nodes.length * 74);
+        // Tall enough that every layer gap can hold an arrowhead. Without this
+        // a deep plan squeezes the gaps below the head's own length, and the
+        // line and the head collapse into each other.
+        const roomNeeded = laid.gapFraction > 0 ? ARROW_ROOM / laid.gapFraction : 0;
+        const height = Math.max(340, laid.nodes.length * 74, roomNeeded);
 
         const svg = element('svg', { viewBox: `0 0 ${width} ${height}`, width, height });
         const defs = this.hatchPattern();
@@ -388,9 +396,12 @@ export class PlanView {
             // so two inputs arrive side by side instead of on top of each other.
             const landing = (edge.slot + 1) / (edge.slots + 1);
             const x2 = (to.x + to.width * landing) * width;
-            // The arrow's tip is its reference point, so the line ends a few
-            // pixels clear of the box and the head fills the gap exactly.
-            const y2 = (to.y + to.height) * height + 3;
+            // The line stops short by the length of the head, which then fills
+            // the gap and brings the tip to rest just clear of the box. Where
+            // the gap is tighter than that, the line keeps a few pixels rather
+            // than turning back on itself.
+            const border = (to.y + to.height) * height;
+            const y2 = Math.min(border + ARROW_GAP + ARROW, y1 - 5);
             const middle = (y1 + y2) / 2;
 
             // Volume is carried twice over, in weight and in strength, so the
@@ -516,8 +527,11 @@ export class PlanView {
         const marker = element('marker', {
             id: 'ch-arrow',
             viewBox: '0 0 12 10',
-            // The tip, so it lands exactly on the end of the line.
-            refX: 12,
+            // The back of the head, not the tip. The marker sits at the end of
+            // the line and is drawn forward from there, so the line stops where
+            // the head begins instead of running its whole length underneath
+            // it and showing either side of the taper.
+            refX: 0,
             refY: 5,
             markerWidth: ARROW,
             markerHeight: ARROW * 0.84,

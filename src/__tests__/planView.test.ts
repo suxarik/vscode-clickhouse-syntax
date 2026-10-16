@@ -130,6 +130,11 @@ describe('PlanView', () => {
         const edges = [...root.querySelectorAll('.ch-canvas path.ch-edge')];
         expect(edges.length).toBeGreaterThan(0);
         expect(edges.every(edge => edge.getAttribute('marker-end'))).toBe(true);
+
+        // The marker is anchored by its back, so the head sits beyond the end
+        // of the line. Anchored by its tip, the line would run the length of
+        // the head underneath it and show either side of the taper.
+        expect(marker.getAttribute('refX')).toBe('0');
     });
 
     it('numbers the steps so the graph has a reading order', () => {

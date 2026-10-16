@@ -361,3 +361,40 @@ describe('reading a graph with several edges', () => {
         expect(laid.edges.every(edge => typeof edge.rows === 'number')).toBe(true);
     });
 });
+
+describe('room for the arrows', () => {
+    const deep = (): PlanGraph =>
+        graphOf(
+            Array.from({ length: 14 }, (_, i) => [
+                `Step_${i}`,
+                100 + i,
+                i === 0 ? [] : [`Step_${i - 1}`],
+            ]) as Array<[string, number, string[]]>
+        );
+
+    it('reports the gap between layers, so a renderer can size for it', () => {
+        const laid = dagLayout(deep());
+        expect(laid.gapFraction).toBeGreaterThan(0);
+        expect(laid.gapFraction).toBeLessThan(1);
+    });
+
+    it('leaves a real gap even when the plan is deep', () => {
+        const laid = dagLayout(deep());
+        // Thirty-odd pixels is what an arrowhead and a visible line need.
+        const heightNeeded = 36 / laid.gapFraction;
+        expect(heightNeeded).toBeGreaterThan(0);
+        expect(Number.isFinite(heightNeeded)).toBe(true);
+    });
+
+    it('never lets two layers touch', () => {
+        const laid = dagLayout(deep());
+        const byDepth = new Map<number, (typeof laid.nodes)[number]>();
+        for (const node of laid.nodes) byDepth.set(node.depth, node);
+
+        for (const [depth, node] of byDepth) {
+            const below = byDepth.get(depth + 1);
+            if (!below) continue;
+            expect(below.y).toBeGreaterThan(node.y + node.height);
+        }
+    });
+});
