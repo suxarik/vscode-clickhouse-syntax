@@ -6,6 +6,7 @@ import {
     Binary,
     CaseExpression,
     CreateTableStatement,
+    CreateViewStatement,
     FunctionCall,
     InsertStatement,
     Lambda,
@@ -440,5 +441,80 @@ describe('error tolerance', () => {
             expect(statement.end).toBeGreaterThan(statement.start);
             expect(statement.end).toBeLessThanOrEqual(sql.length);
         }
+    });
+});
+
+describe('ClickHouse 26.8 syntax', () => {
+    it('parses the PostgreSQL-style regex match operators', () => {
+        for (const operator of ['~', '~*', '!~', '!~*']) {
+            expect(diagnostics(`SELECT a FROM t WHERE name ${operator} 'foo.*'`)).toEqual([]);
+        }
+    });
+
+    it('reads a regex match as a binary comparison', () => {
+        const select = first<SelectStatement>("SELECT a FROM t WHERE name !~* 'foo'");
+        expect(select.where).toMatchObject({ kind: 'Binary', operator: '!~*' });
+    });
+});
+
+describe('ClickHouse 26.9 syntax', () => {
+    it('parses a LIMIT start boundary', () => {
+        expect(diagnostics('SELECT a FROM t ORDER BY a LIMIT 5 AFTER a > 10')).toEqual([]);
+    });
+
+    it('parses both LIMIT boundaries with ALL between them', () => {
+        expect(diagnostics('SELECT a FROM t ORDER BY a LIMIT AFTER a > 10 ALL UNTIL a > 99')).toEqual([]);
+    });
+
+    it('keeps the row count beside the start boundary', () => {
+        const select = first<SelectStatement>('SELECT a FROM t ORDER BY a LIMIT 5 AFTER a > 10');
+        expect(select.limit).toMatchObject({ kind: 'NumberLiteral', text: '5' });
+        expect(select.limitAfter).toMatchObject({ kind: 'Binary', operator: '>' });
+    });
+
+    it('parses a LIMIT stop boundary on its own', () => {
+        const select = first<SelectStatement>('SELECT a FROM t ORDER BY a LIMIT UNTIL a > 99');
+        expect(select.limitUntil).toMatchObject({ kind: 'Binary', operator: '>' });
+        expect(select.limit).toBeUndefined();
+    });
+
+    it('parses a refreshable materialized view', () => {
+        expect(
+            diagnostics('CREATE MATERIALIZED VIEW mv REFRESH EVERY 1 HOUR TO dest AS SELECT a FROM src')
+        ).toEqual([]);
+    });
+
+    it('parses an incremental append refresh', () => {
+        expect(
+            diagnostics(
+                'CREATE MATERIALIZED VIEW mv REFRESH EVERY 1 MINUTE APPEND INCREMENTAL ' +
+                    'TO dest AS SELECT a FROM src'
+            )
+        ).toEqual([]);
+    });
+
+    it('parses the rest of the refresh clause', () => {
+        expect(
+            diagnostics(
+                'CREATE MATERIALIZED VIEW mv REFRESH AFTER 1 DAY RANDOMIZE FOR 1 HOUR ' +
+                    'DEPENDS ON other TO dest AS SELECT a FROM src'
+            )
+        ).toEqual([]);
+    });
+
+    it('still finds the target and the query through a refresh clause', () => {
+        const view = first<CreateViewStatement>(
+            'CREATE MATERIALIZED VIEW mv REFRESH EVERY 1 MINUTE APPEND INCREMENTAL ' +
+                'TO analytics.dest AS SELECT a FROM src'
+        );
+        expect(view.view?.table.name).toBe('mv');
+        expect(view.to?.table.name).toBe('dest');
+        expect(view.to?.database?.name).toBe('analytics');
+        expect(view.select?.from?.source).toMatchObject({ table: { name: 'src' } });
+    });
+
+    it('records that the start boundary repeats', () => {
+        const select = first<SelectStatement>('SELECT a FROM t ORDER BY a LIMIT 2 AFTER a > 10 ALL');
+        expect(select.limitAfterAll).toBe(true);
     });
 });

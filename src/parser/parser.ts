@@ -42,6 +42,8 @@ const BINARY_PRECEDENCE: Record<string, number> = {
     AND: 2,
     '=': 4, '==': 4, '!=': 4, '<>': 4, '<': 4, '<=': 4, '>': 4, '>=': 4, '<=>': 4,
     IN: 4, LIKE: 4, ILIKE: 4, IS: 4, BETWEEN: 4,
+    // PostgreSQL-style regex match, added in ClickHouse 26.8.
+    '~': 4, '~*': 4, '!~': 4, '!~*': 4,
     '||': 5,
     '+': 6, '-': 6,
     '*': 7, '/': 7, '%': 7,
@@ -124,6 +126,26 @@ class Parser {
 
     private atSequence(...uppers: string[]): boolean {
         return uppers.every((upper, i) => this.isKeyword(i, upper));
+    }
+
+    /**
+     * A bare word match. `AFTER` and `UNTIL` are ordinary column names, so the
+     * lexer does not reserve them; only their position after `LIMIT` proves
+     * they are keywords.
+     */
+    private atWord(upper: string, offset = 0): boolean {
+        const token = this.peek(offset);
+        return !!token && token.kind === TokenKind.Word && token.upper === upper;
+    }
+
+    private atAnyWord(...uppers: string[]): boolean {
+        return uppers.some(upper => this.atWord(upper));
+    }
+
+    private eatWord(upper: string): boolean {
+        if (!this.atWord(upper)) return false;
+        this.pos++;
+        return true;
     }
 
     private atPunct(text: string, offset = 0): boolean {
@@ -784,16 +806,22 @@ class Parser {
 
         if (this.at('LIMIT')) {
             this.pos++;
-            const count = this.parseExpression(0);
-            if (this.eat('BY')) {
-                node.limitBy = { count, by: this.parseExpressionList() };
+            // `LIMIT AFTER cond` and `LIMIT UNTIL cond` carry no row count.
+            if (this.atWord('AFTER') || this.atWord('UNTIL')) {
+                this.parseLimitBoundaries(node);
             } else {
-                node.limit = count;
-                if (this.eat('OFFSET')) node.offset = this.parseExpression(0);
-                // `LIMIT offset, count` — the first number is the offset.
-                if (this.eatPunct(',')) {
-                    node.offset = count;
-                    node.limit = this.parseExpression(0);
+                const count = this.parseExpression(0);
+                if (this.eat('BY')) {
+                    node.limitBy = { count, by: this.parseExpressionList() };
+                } else {
+                    node.limit = count;
+                    if (this.eat('OFFSET')) node.offset = this.parseExpression(0);
+                    // `LIMIT offset, count` — the first number is the offset.
+                    if (this.eatPunct(',')) {
+                        node.offset = count;
+                        node.limit = this.parseExpression(0);
+                    }
+                    this.parseLimitBoundaries(node);
                 }
             }
         }
@@ -865,6 +893,18 @@ class Parser {
             if (!this.eatPunct(',')) break;
         }
         return ctes;
+    }
+
+    /**
+     * `AFTER <condition> [ALL] [UNTIL <condition>]` — the ClickHouse 26.9 LIMIT
+     * boundaries, which start and stop output by value rather than by count.
+     */
+    private parseLimitBoundaries(node: SelectStatement): void {
+        if (this.eatWord('AFTER')) {
+            node.limitAfter = this.parseExpression(0);
+            if (this.eatWord('ALL')) node.limitAfterAll = true;
+        }
+        if (this.eatWord('UNTIL')) node.limitUntil = this.parseExpression(0);
     }
 
     private parseSelectItems(): SelectItem[] {
@@ -1503,6 +1543,17 @@ class Parser {
         }
 
         this.eatSequence('ON', 'CLUSTER');
+
+        // A refreshable view: `REFRESH EVERY|AFTER <interval>`, then any of
+        // `OFFSET`, `RANDOMIZE FOR`, `DEPENDS ON`, `SETTINGS` and, since 26.9,
+        // `APPEND INCREMENTAL`. The clause schedules the view; what the editor
+        // needs is the target and the query on the far side of it.
+        if (this.atWord('REFRESH')) {
+            this.pos++;
+            while (!this.done && !this.atPunct(';') && !this.atAnyWord('TO', 'ENGINE', 'AS', 'EMPTY')) {
+                this.pos++;
+            }
+        }
 
         if (this.eat('TO')) {
             const target = this.parseName();

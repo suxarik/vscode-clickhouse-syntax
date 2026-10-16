@@ -341,6 +341,12 @@ export interface SelectStatement extends NodeBase {
     orderBy: OrderByItem[];
     limitBy?: { count: Expression; by: Expression[] };
     limit?: Expression;
+    /** `LIMIT … AFTER <condition>` — output starts at the first matching row. */
+    limitAfter?: Expression;
+    /** `ALL` after the start boundary: it applies again on every later match. */
+    limitAfterAll?: boolean;
+    /** `LIMIT … UNTIL <condition>` — output stops before the first match. */
+    limitUntil?: Expression;
     offset?: Expression;
     settings: SettingAssignment[];
     format?: Identifier;

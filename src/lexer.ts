@@ -39,8 +39,8 @@ export interface Token {
     upper: string;
 }
 
-const OPERATORS_3 = ['<=>'];
-const OPERATORS_2 = ['->', '::', '>=', '<=', '<>', '!=', '==', '||', '&&', '|>'];
+const OPERATORS_3 = ['<=>', '!~*'];
+const OPERATORS_2 = ['->', '::', '>=', '<=', '<>', '!=', '==', '||', '&&', '|>', '~*', '!~'];
 const OPERATOR_CHARS = new Set(['+', '-', '*', '/', '%', '=', '<', '>', '!', '|', '&', '~', '^', '?', ':']);
 const PUNCT_CHARS = new Set(['(', ')', '[', ']', '{', '}', ',', ';', '.']);
 
