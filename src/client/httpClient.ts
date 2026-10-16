@@ -31,6 +31,8 @@ export interface QueryOptions {
     onRows?: (rows: unknown[][], total: number) => void;
     /** Overrides the profile's database for this query. */
     database?: string;
+    /** Settings for this query alone, applied over the profile's own. */
+    settings?: Record<string, string>;
     /** Client-side deadline. Defaults to the server limit plus a margin. */
     timeoutMs?: number;
     /** Progress notes for the diagnostics log. */
@@ -245,6 +247,10 @@ export class ClickHouseClient {
         }
         for (const [key, value] of Object.entries(this.connection.settings)) {
             params.set(key, String(value));
+        }
+        // After the profile's, so a query that needs a setting gets it.
+        for (const [key, value] of Object.entries(options.settings ?? {})) {
+            params.set(key, value);
         }
         // Set after the profile's settings so a runbook parameter cannot be
         // shadowed by one, and prefixed so it can only ever be a parameter.

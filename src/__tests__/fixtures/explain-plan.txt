@@ -1,0 +1,28 @@
+Output: user_id, count(), sum(revenue)
+
+Limit (preliminary LIMIT)
+│  Limit 100
+│  Offset 0
+└──Sorting (Sorting for ORDER BY)
+   │  Sort description: count() DESC
+   │  Limit 100
+   └──Aggregating
+      │  Keys: user_id
+      │  Aggregates: count(), sum(revenue)
+      │  Skip merging: 0
+      │  Bucket top-K: 100 descending
+      └──ReadFromMergeTree (default.events)
+            Read type: Default
+            Parts: 3 | Granules: 192
+            Output: user_id, revenue
+            Prewhere filter
+            Prewhere filter column:  event_date >= \'2026-09-16\' AND status = \'active\'
+            Indexes:
+              PrimaryKey
+                Keys:
+                  event_date
+                Condition: (event_date in [20712, +Inf))
+                Parts: 3/3
+                Granules: 192/367
+                Search Algorithm: binary search
+              Ranges: 3
