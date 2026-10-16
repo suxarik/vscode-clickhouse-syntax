@@ -2,7 +2,7 @@
 
 All notable changes to this extension will be documented in this file.
 
-## [2.5.2] - 2026-10-16
+## [2.5.3] - 2026-10-16
 
 ### Added
 
@@ -136,6 +136,16 @@ All notable changes to this extension will be documented in this file.
   waiting rather than calling it parallelism.
 
 ### Fixed
+
+- **The explorer listed the server beside its own databases.** A database belongs to the
+  server it is on, and putting them side by side at the root read as two unrelated
+  things. Databases now sit inside the server, which is expanded by default so nothing
+  moved behind a click.
+
+- **A MergeTree table wore the database icon.** The icon map gave the whole MergeTree
+  family `database`, which is what the database node above it uses — so a table looked
+  like a database inside a database. They are `layers` now, and a test refuses any
+  engine that would take the database node's icon.
 
 - **Show Create Table put the definition in a grid cell.** The answer to `SHOW CREATE
   TABLE` is a statement, not a result: a dozen lines of DDL arrived as a single cell,

@@ -48,7 +48,9 @@ const ENGINE_ICONS: Array<[RegExp, string]> = [
     [/(Summing|Aggregating|Coalescing)MergeTree$/, 'graph'],
     [/CollapsingMergeTree$/, 'fold'],
     [/GraphiteMergeTree$/, 'graph-line'],
-    [/MergeTree$/, 'database'],
+    // Not 'database': that is the database node's icon, and a table wearing
+    // it reads as a database sitting inside a database.
+    [/MergeTree$/, 'layers'],
 
     // Queues and streams.
     [/^(Kafka|RabbitMQ|NATS)/, 'radio-tower'],
@@ -151,7 +153,9 @@ export class ExplorerProvider implements vscode.TreeDataProvider<ExplorerNode> {
             case 'server': {
                 const profile = this.connections.activeProfileName() ?? 'ClickHouse';
                 const cluster = this.serverShape?.cluster;
-                const item = new vscode.TreeItem(profile, vscode.TreeItemCollapsibleState.None);
+                // Expanded, so nesting the databases correctly does not put
+                // them behind a click that was not there before.
+                const item = new vscode.TreeItem(profile, vscode.TreeItemCollapsibleState.Expanded);
 
                 item.iconPath = new vscode.ThemeIcon(cluster ? 'type-hierarchy' : 'server');
                 item.description = cluster
@@ -232,12 +236,14 @@ export class ExplorerProvider implements vscode.TreeDataProvider<ExplorerNode> {
             void this.loadStatistics();
             void this.loadServerShape();
 
-            return [
-                { kind: 'server' as const },
-                ...schema.databases
-                    .map(database => ({ kind: 'database' as const, name: database.name }))
-                    .sort((a, b) => a.name.localeCompare(b.name)),
-            ];
+            return [{ kind: 'server' as const }];
+        }
+
+        if (node.kind === 'server') {
+            if (!schema) return [];
+            return schema.databases
+                .map(database => ({ kind: 'database' as const, name: database.name }))
+                .sort((a, b) => a.name.localeCompare(b.name));
         }
 
         if (node.kind === 'database') {

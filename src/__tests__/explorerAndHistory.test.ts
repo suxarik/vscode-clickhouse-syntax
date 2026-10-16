@@ -59,12 +59,18 @@ describe('explorer tree', () => {
         return { explorer: new ExplorerProvider(schemaManager, connections), connections };
     }
 
-    it('lists the server and then its databases at the root', () => {
+    it('puts the server at the root, with the databases inside it', () => {
+        // A database belongs to the server it is on. Listing them side by side
+        // reads as two unrelated things.
         const { explorer } = makeExplorer();
-        expect(explorer.getChildren()).toEqual([
-            { kind: 'server' },
-            { kind: 'database', name: 'analytics' },
-        ]);
+        expect(explorer.getChildren()).toEqual([{ kind: 'server' }]);
+        expect(explorer.getChildren({ kind: 'server' })).toEqual([{ kind: 'database', name: 'analytics' }]);
+    });
+
+    it('opens the server by default, so nothing is hidden behind a click', () => {
+        const { explorer } = makeExplorer();
+        const item = explorer.getTreeItem({ kind: 'server' });
+        expect(item.collapsibleState).toBe(vscode.TreeItemCollapsibleState.Expanded);
     });
 
     it('lists a database\'s tables, sorted', () => {
@@ -391,7 +397,10 @@ describe('engineIcon', () => {
         // A ReplacingMergeTree needs FINAL; a SummingMergeTree does not. The
         // engine is already in the description, but an icon is what gets
         // noticed while scanning a long list.
-        expect(engineIcon('MergeTree')).toBe('database');
+        // Not 'database': the database node above it uses that, and a table
+        // that looks like a database is worse than no icon at all.
+        expect(engineIcon('MergeTree')).toBe('layers');
+        expect(engineIcon('MergeTree')).not.toBe('database');
         expect(engineIcon('ReplacingMergeTree')).toBe('versions');
         expect(engineIcon('SummingMergeTree')).toBe('graph');
         expect(engineIcon('AggregatingMergeTree')).toBe('graph');
@@ -427,6 +436,13 @@ describe('engineIcon', () => {
         expect(engineIcon('')).toBe('table');
         expect(engineIcon(undefined)).toBe('table');
         expect(engineIcon('SomethingClickHouseAddedLastWeek')).toBe('table');
+    });
+
+    it('never gives a table the icon the database node uses', () => {
+        const catalog = makeCatalog();
+        for (const engine of catalog.engines()) {
+            expect(engineIcon(engine.name)).not.toBe('database');
+        }
     });
 
     it('resolves every engine this ClickHouse reports, mostly to something specific', () => {
@@ -465,10 +481,8 @@ describe('the server at the top of the explorer', () => {
         return explorer;
     }
 
-    it('puts the server above the databases', () => {
-        const children = explorerKnowing(undefined).getChildren();
-        expect(children[0]).toMatchObject({ kind: 'server' });
-        expect(children.slice(1).every(node => node.kind === 'database')).toBe(true);
+    it('is the only thing at the root', () => {
+        expect(explorerKnowing(undefined).getChildren()).toEqual([{ kind: 'server' }]);
     });
 
     it('shows nothing extra when there is no schema, so the welcome can offer to connect', () => {
