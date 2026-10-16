@@ -258,3 +258,27 @@ describe('resolveCompletion', () => {
         expect(column.documentation).toBe(before);
     });
 });
+
+describe('table functions', () => {
+    it('offers table functions where a table belongs', async () => {
+        const labels = await labelsAt('SELECT * FROM |');
+        expect(labels).toContain('s3');
+        expect(labels).toContain('numbers');
+        expect(labels).toContain('remote');
+    });
+
+    it('offers them after JOIN too', async () => {
+        expect(await labelsAt('SELECT * FROM a JOIN |')).toContain('s3');
+    });
+
+    it('does not offer them in a SELECT list, where they are not valid', async () => {
+        expect(await labelsAt('SELECT | FROM t')).not.toContain('s3');
+    });
+
+    it('completes a table function as a call', async () => {
+        const items = await itemsAt('SELECT * FROM |');
+        const s3 = items.find(item => item.label === 's3');
+        expect(s3?.insertText).toBeInstanceOf(vscode.SnippetString);
+        expect(s3?.detail).toContain('Table function');
+    });
+});

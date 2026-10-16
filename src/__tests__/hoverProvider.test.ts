@@ -130,3 +130,32 @@ describe('nothing to say', () => {
         expect(await hoverAt("SELECT 'cou|nt' FROM events")).toBeUndefined();
     });
 });
+
+describe('table functions', () => {
+    it('documents a table function', async () => {
+        const md = await hoverAt("SELECT * FROM s|3('https://bucket/f.parquet')");
+        expect(md).toContain('**s3**');
+        expect(md).toContain('table function');
+    });
+
+    it('shows the signature where the docs give one', async () => {
+        const md = await hoverAt("SELECT * FROM ur|l('https://example.com/f.csv')");
+        expect(md).toContain('url(URL');
+    });
+
+    it('warns when a table function is refused on a read-only connection', async () => {
+        const md = await hoverAt("SELECT * FROM s|3('https://bucket/f.parquet')");
+        expect(md).toContain('read-only');
+    });
+
+    it('does not warn about one that works read-only', async () => {
+        const md = await hoverAt('SELECT * FROM numbe|rs(10)');
+        expect(md).toContain('**numbers**');
+        expect(md).not.toContain('read-only');
+    });
+
+    it('still documents the system table when it is not a call', async () => {
+        const md = await hoverAt('SELECT * FROM system.numbe|rs');
+        expect(md).toContain('system table');
+    });
+});

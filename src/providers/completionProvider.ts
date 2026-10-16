@@ -326,6 +326,18 @@ export async function buildCompletions(
         systemDb.detail = 'ClickHouse system database';
         systemDb.sortText = rankSort(Rank.Database, 'system');
         items.push(systemDb);
+
+        // A table function reads a table from somewhere the schema does not
+        // reach — S3, a lake, another server — so it belongs exactly where a
+        // table name belongs, and nowhere else.
+        for (const fn of catalog.tableFunctions()) {
+            const item = new vscode.CompletionItem(fn.name, vscode.CompletionItemKind.Function);
+            item.detail = fn.syntax ? `Table function — ${fn.syntax}` : 'Table function';
+            if (fn.description) item.documentation = new vscode.MarkdownString(fn.description);
+            item.insertText = new vscode.SnippetString(fn.snippet);
+            item.sortText = rankSort(Rank.Table, fn.name);
+            items.push(item);
+        }
     }
 
     if (config.get<boolean>('completion.includeKeywords', true)) {
