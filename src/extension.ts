@@ -16,6 +16,7 @@ import { Catalog, CATALOG_VERSION, CATALOG_GENERATED_AT, CATALOG_COUNTS } from '
 import { AnalysisCache } from './analysis';
 import { RULES } from './lint/engine';
 import { ConnectionManager } from './client/connectionManager';
+import { registerLanguageModelTools } from './lm/tools';
 import { registerConnectionCommands } from './client/commands';
 import { registerConnectionSetupCommands } from './client/connectionSetup';
 import { registerDiagnosticsCommand } from './client/diagnostics';
@@ -120,6 +121,7 @@ export function activate(context: vscode.ExtensionContext) {
         ...registerNotebook(connections, queryRunner, analysisCache, context.extensionUri),
         ...registerMigrationCommands(connections, schemaManager),
         ...registerPerformanceCommand(schemaManager, catalog, analysisCache),
+        ...registerLanguageModelTools(connections),
         connections.onDidChangeActiveProfile(() => explorer.reset())
     );
 
