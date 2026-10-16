@@ -1,0 +1,531 @@
+/**
+ * The plan view.
+ *
+ * Two drawings of one graph. The flame answers "where did the time go" by
+ * making the answer the widest thing on screen; the node-link view answers
+ * "what shape is this query" by drawing the pipeline. Both are measurements
+ * rather than diagrams: a box's size is its cost, never a fixed card.
+ *
+ * `elapsed_us` is CPU time summed over every thread, so it is labelled as CPU
+ * time and shown next to the wall clock from `query_log`. Presenting one as the
+ * other would be a lie the picture would make very convincing.
+ */
+import { PlanHostMessage, PlanPayload, PlanTransport, ImageFormat } from '../protocol';
+import { FlameCell, dagLayout, flameLayout, DagLayoutResult } from './layout';
+import { Palette, heatAlpha, readPalette, withAlpha } from './palette';
+import { prepareSvgForExport, rasterize } from './exportImage';
+import { formatBytes, formatCount } from '../../results/format';
+
+const SVG_NS = 'http://www.w3.org/2000/svg';
+const ROW = 26;
+const MIN_CANVAS = 560;
+/** Natural sizes: what "1:1" means, independent of the panel's width. */
+const FLAME_WIDTH = 1080;
+const GRAPH_WIDTH = 860;
+
+type ViewKind = 'flame' | 'graph';
+/** `fit` recomputes on every resize; a number is a fixed scale. */
+type Zoom = 'fit' | number;
+
+export function formatDuration(microseconds: number): string {
+    if (microseconds < 1000) return `${Math.round(microseconds)}µs`;
+    if (microseconds < 1_000_000) return `${(microseconds / 1000).toFixed(microseconds < 10_000 ? 1 : 0)}ms`;
+    return `${(microseconds / 1_000_000).toFixed(2)}s`;
+}
+
+function element<K extends keyof SVGElementTagNameMap>(
+    tag: K,
+    attributes: Record<string, string | number> = {}
+): SVGElementTagNameMap[K] {
+    const node = document.createElementNS(SVG_NS, tag);
+    for (const [name, value] of Object.entries(attributes)) node.setAttribute(name, String(value));
+    return node;
+}
+
+function html(tag: string, className = '', text = ''): HTMLElement {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text) node.textContent = text;
+    return node;
+}
+
+/** Roughly how many characters fit, so a label is cut rather than overflowing. */
+function fit(label: string, pixels: number): string {
+    const room = Math.floor((pixels - 10) / 6.1);
+    if (room < 2) return '';
+    return label.length <= room ? label : `${label.slice(0, room - 1)}…`;
+}
+
+export class PlanView {
+    private readonly explainBody: HTMLElement;
+    private readonly canvas: HTMLElement;
+    private readonly summary: HTMLElement;
+    private readonly tip: HTMLElement;
+    private readonly buttons = new Map<ViewKind, HTMLButtonElement>();
+
+    private palette: Palette = readPalette();
+    private kind: ViewKind = 'flame';
+    private zoom: Zoom = 'fit';
+    private readonly zoomButtons = new Map<string, HTMLButtonElement>();
+    private payload?: PlanPayload;
+    private selected?: string;
+
+    constructor(
+        private readonly root: HTMLElement,
+        private readonly transport: PlanTransport
+    ) {
+        const plan = html('div', 'ch-plan');
+
+        const explainPane = html('div', 'ch-pane-explain');
+        explainPane.append(html('div', 'ch-explain-head', 'EXPLAIN PLAN'));
+        this.explainBody = html('pre', 'ch-explain-body');
+        explainPane.append(this.explainBody);
+
+        const divider = html('div', 'ch-divider');
+        this.makeResizable(divider, explainPane);
+
+        const planPane = html('div', 'ch-pane-plan');
+        planPane.append(this.toolbar());
+        this.canvas = html('div', 'ch-canvas');
+        this.summary = html('div', 'ch-summary');
+        planPane.append(this.canvas, this.summary);
+
+        this.tip = html('div', 'ch-tip');
+        this.tip.style.display = 'none';
+        this.canvas.append(this.tip);
+
+        plan.append(explainPane, divider, planPane);
+        this.root.append(plan);
+
+        this.transport.onMessage(message => this.onMessage(message));
+        this.transport.post({ type: 'ready' });
+        window.addEventListener('resize', () => this.draw());
+    }
+
+    private toolbar(): HTMLElement {
+        const bar = html('div', 'ch-toolbar');
+
+        const views = html('div', 'ch-views');
+        for (const [kind, label] of [
+            ['flame', 'Flame'],
+            ['graph', 'Graph'],
+        ] as Array<[ViewKind, string]>) {
+            const button = html('button', kind === this.kind ? 'ch-on' : '', label) as HTMLButtonElement;
+            button.addEventListener('click', () => this.show(kind));
+            this.buttons.set(kind, button);
+            views.append(button);
+        }
+
+        const zooms = html('div', 'ch-views ch-zooms');
+        for (const [key, label, title] of [
+            ['fit', 'Fit', 'Scale the drawing to the panel'],
+            ['one', '1:1', 'Draw at natural size'],
+        ] as Array<[string, string, string]>) {
+            const button = html('button', key === 'fit' ? 'ch-on' : '', label) as HTMLButtonElement;
+            button.title = title;
+            button.addEventListener('click', () => this.setZoom(key === 'fit' ? 'fit' : 1));
+            this.zoomButtons.set(key, button);
+            zooms.append(button);
+        }
+
+        const exports = html('div', 'ch-export');
+        exports.append(html('span', '', 'Save as'));
+        for (const format of ['svg', 'png', 'jpg'] as ImageFormat[]) {
+            const button = html('button', '', format.toUpperCase()) as HTMLButtonElement;
+            button.addEventListener('click', () => void this.exportAs(format));
+            exports.append(button);
+        }
+
+        bar.append(views, zooms, exports);
+        return bar;
+    }
+
+    /** Drag the divider; the panes keep whatever ratio the reader chose. */
+    private makeResizable(divider: HTMLElement, pane: HTMLElement): void {
+        let dragging = false;
+        divider.addEventListener('mousedown', event => {
+            dragging = true;
+            divider.classList.add('ch-dragging');
+            event.preventDefault();
+        });
+        window.addEventListener('mousemove', event => {
+            if (!dragging) return;
+            const fraction = Math.min(0.75, Math.max(0.12, event.clientX / window.innerWidth));
+            pane.style.width = `${(fraction * 100).toFixed(1)}%`;
+            this.draw();
+        });
+        window.addEventListener('mouseup', () => {
+            dragging = false;
+            divider.classList.remove('ch-dragging');
+        });
+    }
+
+    private onMessage(message: PlanHostMessage): void {
+        if (message.type === 'status') {
+            this.canvas.querySelector('.ch-empty')?.remove();
+            this.canvas.append(html('div', 'ch-empty', message.message));
+            return;
+        }
+        if (message.type === 'error') {
+            this.canvas.replaceChildren(this.tip, html('div', 'ch-empty', message.message));
+            return;
+        }
+
+        this.payload = message.payload;
+        this.palette = readPalette();
+        this.renderExplain(message.payload.explain);
+        this.renderSummary(message.payload);
+        this.draw();
+    }
+
+    private setZoom(zoom: Zoom): void {
+        this.zoom = zoom;
+        for (const [key, button] of this.zoomButtons) {
+            button.className = (key === 'fit') === (zoom === 'fit') ? 'ch-on' : '';
+        }
+        this.draw();
+    }
+
+    private show(kind: ViewKind): void {
+        this.kind = kind;
+        for (const [name, button] of this.buttons) button.className = name === kind ? 'ch-on' : '';
+        this.draw();
+    }
+
+    private renderExplain(text: string): void {
+        this.explainBody.replaceChildren(
+            ...text.split('\n').map(line => {
+                const node = html('span', 'ch-line');
+                node.textContent = line || ' ';
+                return node;
+            })
+        );
+    }
+
+    private renderSummary(payload: PlanPayload): void {
+        const cpuMs = payload.graph.totalCpuUs / 1000;
+        const wallMs = payload.summary?.query_duration_ms ?? 0;
+        const parts: Array<[string, string]> = [
+            ['wall clock', wallMs ? `${wallMs} ms` : '—'],
+            ['CPU', `${cpuMs.toFixed(0)} ms`],
+        ];
+        // Below 1 this is not parallelism, it is waiting, and saying
+        // "parallelism 0.2x" would invite exactly the wrong conclusion.
+        if (wallMs > 0 && cpuMs / wallMs >= 1.15) {
+            parts.push(['parallelism', `${(cpuMs / wallMs).toFixed(1)}×`]);
+        } else if (wallMs > 0 && cpuMs < wallMs) {
+            parts.push(['mostly', 'waiting, not computing']);
+        }
+        if (payload.summary) {
+            parts.push(
+                ['rows read', formatCount(payload.summary.read_rows)],
+                ['memory', formatBytes(payload.summary.memory_usage)],
+                ['threads', String(payload.summary.threads)]
+            );
+        }
+
+        this.summary.replaceChildren(
+            ...parts.map(([label, value]) => {
+                const slot = html('span');
+                slot.append(`${label} `, html('b', '', value));
+                return slot;
+            })
+        );
+    }
+
+    private draw(): void {
+        if (!this.payload) return;
+        const drawing = this.kind === 'flame' ? this.drawFlame() : this.drawGraph();
+        this.applyZoom(drawing);
+        this.canvas.replaceChildren(this.tip, drawing);
+    }
+
+    /**
+     * The drawing is laid out at its natural size and then scaled, so Fit and
+     * 1:1 change nothing about the geometry — only how much of the panel it
+     * takes. Fit never magnifies: a short plan blown up to fill the height
+     * would be a wall of enormous bars saying nothing extra.
+     */
+    private applyZoom(drawing: SVGSVGElement): void {
+        const naturalWidth = Number(drawing.getAttribute('width')) || 1;
+        const naturalHeight = Number(drawing.getAttribute('height')) || 1;
+
+        const scale =
+            this.zoom === 'fit'
+                ? Math.min(
+                      1,
+                      (this.canvas.clientWidth - 16) / naturalWidth,
+                      (this.canvas.clientHeight - 16) / naturalHeight
+                  )
+                : this.zoom;
+
+        if (!Number.isFinite(scale) || scale <= 0) return;
+        drawing.setAttribute('width', String(Math.round(naturalWidth * scale)));
+        drawing.setAttribute('height', String(Math.round(naturalHeight * scale)));
+    }
+
+    /** The width the drawing is composed at, before any scaling. */
+    private width(): number {
+        if (this.zoom !== 'fit') return this.kind === 'flame' ? FLAME_WIDTH : GRAPH_WIDTH;
+        return Math.max(MIN_CANVAS, this.canvas.clientWidth - 16);
+    }
+
+    private drawFlame(): SVGSVGElement {
+        const cells = flameLayout(this.payload!.graph);
+        const width = this.width();
+        const depth = Math.max(...cells.map(cell => cell.depth), 0) + 1;
+        const height = depth * ROW + 8;
+
+        const svg = element('svg', { viewBox: `0 0 ${width} ${height}`, width, height });
+        svg.append(this.hatchPattern());
+
+        for (const cell of cells) {
+            const x = cell.x * width;
+            const w = Math.max(1, cell.width * width);
+            const y = cell.depth * ROW + 4;
+            svg.append(this.flameCell(cell, x, y, w));
+        }
+        return svg;
+    }
+
+    private flameCell(cell: FlameCell, x: number, y: number, w: number): SVGGElement {
+        const group = element('g', { class: 'ch-cell' });
+        const node = cell.node;
+
+        const bar = element('rect', {
+            x,
+            y,
+            width: w,
+            height: ROW - 3,
+            rx: 2,
+            fill: withAlpha(this.palette.accent, heatAlpha(node.share)),
+            stroke: cell.id === this.selected ? this.palette.foreground : cell.hot ? this.palette.hot : 'none',
+            'stroke-width': cell.id === this.selected ? 1.5 : cell.hot ? 1 : 0,
+        });
+        group.append(bar);
+
+        // Time spent waiting is hatched rather than coloured: a step that mostly
+        // waited is idle, which is a different thing from a step that was cheap.
+        const waited = node.inputWaitUs + node.outputWaitUs;
+        const idle = waited / (waited + node.cpuUs || 1);
+        if (idle > 0.5 && w > 6) {
+            group.append(
+                element('rect', {
+                    x,
+                    y,
+                    width: w,
+                    height: ROW - 3,
+                    rx: 2,
+                    fill: 'url(#ch-wait)',
+                    opacity: 0.5,
+                })
+            );
+        }
+
+        const time = formatDuration(node.cpuUs);
+        const label = fit(cell.foldedCount ? `${node.label}` : node.label, w - time.length * 6.4);
+        if (label) {
+            const text = element('text', {
+                x: x + 6,
+                y: y + ROW / 2 + 1,
+                fill: this.palette.foreground,
+                'font-size': 11,
+                'dominant-baseline': 'middle',
+                class: 'ch-label',
+            });
+            text.textContent = label;
+            group.append(text);
+        }
+        if (w > 90) {
+            const right = element('text', {
+                x: x + w - 6,
+                y: y + ROW / 2 + 1,
+                fill: this.palette.muted,
+                'font-size': 10,
+                'text-anchor': 'end',
+                'dominant-baseline': 'middle',
+                class: 'ch-label',
+            });
+            right.textContent = time;
+            group.append(right);
+        }
+
+        this.wire(group, cell.id, node.label, node);
+        return group;
+    }
+
+    private drawGraph(): SVGSVGElement {
+        const laid: DagLayoutResult = dagLayout(this.payload!.graph);
+        const width = this.width();
+        const height = Math.max(340, laid.nodes.length * 74);
+
+        const svg = element('svg', { viewBox: `0 0 ${width} ${height}`, width, height });
+        svg.append(this.hatchPattern());
+
+        const byId = new Map(laid.nodes.map(node => [node.id, node]));
+        for (const edge of laid.edges) {
+            const from = byId.get(edge.from);
+            const to = byId.get(edge.to);
+            if (!from || !to) continue;
+
+            const x1 = (from.x + from.width / 2) * width;
+            const y1 = from.y * height;
+            const x2 = (to.x + to.width / 2) * width;
+            const y2 = (to.y + to.height) * height;
+            const thickness = 1 + Math.min(5, Math.log10(Math.max(1, edge.rows)) * 1.1);
+
+            svg.append(
+                element('path', {
+                    d: `M ${x1} ${y1} C ${x1} ${(y1 + y2) / 2}, ${x2} ${(y1 + y2) / 2}, ${x2} ${y2}`,
+                    fill: 'none',
+                    stroke: withAlpha(this.palette.foreground, 0.28),
+                    'stroke-width': thickness.toFixed(2),
+                })
+            );
+        }
+
+        for (const node of laid.nodes) {
+            const group = element('g', { class: 'ch-cell' });
+            const x = node.x * width;
+            const y = node.y * height;
+            const w = node.width * width;
+            const h = Math.max(26, node.height * height);
+
+            group.append(
+                element('rect', {
+                    x,
+                    y,
+                    width: w,
+                    height: h,
+                    rx: 3,
+                    fill: withAlpha(this.palette.accent, heatAlpha(node.share)),
+                    stroke:
+                        node.id === this.selected
+                            ? this.palette.foreground
+                            : node.hot
+                              ? this.palette.hot
+                              : withAlpha(this.palette.border, 0.9),
+                    'stroke-width': node.id === this.selected ? 1.5 : 1,
+                })
+            );
+
+            const name = element('text', {
+                x: x + w / 2,
+                y: y + h / 2 - 5,
+                fill: this.palette.foreground,
+                'font-size': 12,
+                'text-anchor': 'middle',
+                class: 'ch-label',
+            });
+            name.textContent = fit(node.label, w);
+            group.append(name);
+
+            const detail = element('text', {
+                x: x + w / 2,
+                y: y + h / 2 + 11,
+                fill: this.palette.muted,
+                'font-size': 10,
+                'text-anchor': 'middle',
+                class: 'ch-label',
+            });
+            detail.textContent = fit(
+                `${formatDuration(node.cpuUs)} · ${formatCount(node.outputRows)} rows`,
+                w
+            );
+            group.append(detail);
+
+            this.wire(group, node.id, node.label, node);
+            svg.append(group);
+        }
+        return svg;
+    }
+
+    /** One diagonal hatch, reused by both drawings. */
+    private hatchPattern(): SVGDefsElement {
+        const defs = element('defs');
+        const pattern = element('pattern', {
+            id: 'ch-wait',
+            width: 6,
+            height: 6,
+            patternUnits: 'userSpaceOnUse',
+            patternTransform: 'rotate(45)',
+        });
+        pattern.append(
+            element('rect', { width: 2, height: 6, fill: withAlpha(this.palette.background, 0.85) })
+        );
+        defs.append(pattern);
+        return defs;
+    }
+
+    private wire(
+        group: SVGGElement,
+        id: string,
+        label: string,
+        node: { cpuUs: number; processors: number; inputRows: number; outputRows: number; inputWaitUs: number; outputWaitUs: number; outputBytes: number; description: string }
+    ): void {
+        group.addEventListener('mousemove', event => this.showTip(event, label, node));
+        group.addEventListener('mouseleave', () => {
+            this.tip.style.display = 'none';
+        });
+        group.addEventListener('click', () => {
+            this.selected = this.selected === id ? undefined : id;
+            this.highlightExplain(label);
+            this.draw();
+        });
+    }
+
+    private showTip(
+        event: MouseEvent,
+        label: string,
+        node: { cpuUs: number; processors: number; inputRows: number; outputRows: number; inputWaitUs: number; outputWaitUs: number; outputBytes: number; description: string }
+    ): void {
+        const rows: Array<[string, string]> = [
+            ['CPU time', formatDuration(node.cpuUs)],
+            ['threads', String(node.processors)],
+            ['rows in → out', `${formatCount(node.inputRows)} → ${formatCount(node.outputRows)}`],
+            ['bytes out', formatBytes(node.outputBytes)],
+            ['waiting', formatDuration(node.inputWaitUs + node.outputWaitUs)],
+        ];
+
+        const list = html('dl');
+        for (const [term, value] of rows) {
+            list.append(html('dt', '', term), html('dd', '', value));
+        }
+
+        this.tip.replaceChildren(html('div', 'ch-tip-name', label));
+        if (node.description) this.tip.append(html('div', '', node.description));
+        this.tip.append(list);
+
+        const bounds = this.canvas.getBoundingClientRect();
+        this.tip.style.display = 'block';
+        this.tip.style.left = `${Math.min(event.clientX - bounds.left + 14, bounds.width - 330)}px`;
+        this.tip.style.top = `${event.clientY - bounds.top + 14}px`;
+    }
+
+    /** Selecting a step marks where the server named it in the plan text. */
+    private highlightExplain(label: string): void {
+        const needle = label.toLowerCase();
+        let first: Element | undefined;
+        for (const line of this.explainBody.querySelectorAll('.ch-line')) {
+            const matched = this.selected !== undefined && (line.textContent ?? '').toLowerCase().includes(needle);
+            line.classList.toggle('ch-match', matched);
+            if (matched && !first) first = line;
+        }
+        // Only the first match is worth scrolling to; scrolling to each in turn
+        // would leave the reader at the last one, which is nobody's intent.
+        first?.scrollIntoView?.({ block: 'nearest' });
+    }
+
+    private async exportAs(format: ImageFormat): Promise<void> {
+        const svg = this.canvas.querySelector('svg');
+        if (!svg) return;
+
+        const width = Number(svg.getAttribute('width')) || this.width();
+        const height = Number(svg.getAttribute('height')) || 400;
+        const options = { background: this.palette.background, width, height };
+        const markup = prepareSvgForExport(svg as SVGSVGElement, options);
+
+        const data = format === 'svg' ? markup : await rasterize(markup, format, options);
+        this.transport.post({ type: 'export', format, data });
+    }
+}
