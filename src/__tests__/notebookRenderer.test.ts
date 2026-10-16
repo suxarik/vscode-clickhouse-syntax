@@ -173,6 +173,7 @@ describe('a plan in a runbook cell', () => {
                 mime: PLAN_MIME,
                 json: () => ({
                     sql: 'SELECT 1',
+                    queryId: 'runbook-query-id',
                     profile: 'local',
                     explain: 'ReadFromMergeTree (default.events)',
                     graph: buildPlanGraph(rows),

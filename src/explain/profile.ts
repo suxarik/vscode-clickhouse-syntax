@@ -8,12 +8,22 @@
  * `system.processors_profile_log` is written on a timer, so the rows are not
  * there the instant the query ends. `SYSTEM FLUSH LOGS` forces it, but that is
  * a write, so on a read-only profile the only option is to wait and look again.
+ * The flush goes through `execute` rather than `query`, because `query` appends
+ * a FORMAT clause and a FORMAT clause after SYSTEM is a syntax error.
  */
 import { parse } from '../parser/parser';
 import { QueryResult } from '../client/types';
 import { ProcessorRow } from './graph';
 
 export interface ProfileClient {
+    /**
+     * Statements that return nothing.
+     *
+     * `query` appends a FORMAT clause so it can read rows back, which is a
+     * syntax error after `SYSTEM FLUSH LOGS`. Sending the flush that way fails
+     * every time, and the wait that follows quietly covers for it.
+     */
+    execute?(sql: string, options?: { maxExecutionTime?: number }): Promise<string>;
     query(
         sql: string,
         options?: {
@@ -120,11 +130,12 @@ export async function collectProfile(
         settings: { log_processors_profiles: '1' },
     });
 
-    if (options.canFlushLogs) {
+    if (options.canFlushLogs && client.execute) {
         try {
-            await client.query('SYSTEM FLUSH LOGS');
+            await client.execute('SYSTEM FLUSH LOGS', { maxExecutionTime: 10 });
         } catch {
-            // Not permitted after all. Waiting still works.
+            // The user may not be allowed to flush. Waiting still works, it is
+            // just slower.
         }
     }
 

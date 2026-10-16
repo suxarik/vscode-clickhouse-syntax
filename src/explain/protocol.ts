@@ -12,6 +12,8 @@ export const PLAN_MIME = 'application/vnd.clickhouse.plan+json';
 
 export interface PlanPayload {
     sql: string;
+    /** The id the query ran under, which its shards logged against too. */
+    queryId: string;
     profile: string;
     /** `EXPLAIN PLAN indexes = 1`, exactly as the server wrote it. */
     explain: string;

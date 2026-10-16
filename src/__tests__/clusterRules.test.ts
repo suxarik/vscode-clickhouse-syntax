@@ -1,7 +1,7 @@
 /**
  * Tests for what a cluster's state is worth saying out loud.
  */
-import { clusterFindings } from '../cluster/rules';
+import { clusterFindings, distributedFindings } from '../cluster/rules';
 import { ClusterHost, ClusterView, DataPlacement, ReplicaHealth } from '../cluster/types';
 
 const host = (shard: number, replica: number, name: string): ClusterHost => ({
@@ -197,5 +197,45 @@ describe('clusterFindings about where the data is', () => {
             })
         );
         expect(findings.map(f => f.ruleId)).not.toContain('shard-skew');
+    });
+});
+
+describe('distributedFindings', () => {
+    const work = (shard: string, rows: number, initiator = false) => ({
+        shard,
+        host: `ch-0${shard}`,
+        isInitiator: initiator,
+        durationMs: 100,
+        readRows: rows,
+        readBytes: rows * 10,
+        memoryBytes: 1,
+    });
+
+    it('reports shards that did very different amounts of work', () => {
+        const finding = distributedFindings({
+            shards: [work('1', 800_000, true), work('2', 400_000)],
+            totalReadRows: 1_200_000,
+            skew: 2,
+        })[0];
+
+        expect(finding.ruleId).toBe('shard-work-skew');
+        expect(finding.evidence).toContain('800,000');
+        expect(finding.evidence).toContain('2.0x');
+    });
+
+    it('says nothing when the work was even', () => {
+        expect(
+            distributedFindings({
+                shards: [work('1', 1_001_760, true), work('2', 998_240)],
+                totalReadRows: 2_000_000,
+                skew: 1.004,
+            })
+        ).toEqual([]);
+    });
+
+    it('says nothing about a query that ran on one shard', () => {
+        expect(
+            distributedFindings({ shards: [work('1', 100, true)], totalReadRows: 100, skew: 1 })
+        ).toEqual([]);
     });
 });

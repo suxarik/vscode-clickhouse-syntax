@@ -25,11 +25,17 @@ const ONE_PROCESSOR = [
 ];
 
 /** Records every statement sent, and answers from a queue per table. */
-function fakeClient(profileAnswers: unknown[][][]): ProfileClient & { sent: string[] } {
+function fakeClient(profileAnswers: unknown[][][]): ProfileClient & { sent: string[]; executed: string[] } {
     const sent: string[] = [];
+    const executed: string[] = [];
     let profileCall = 0;
     return {
         sent,
+        executed,
+        async execute(sql: string) {
+            executed.push(sql.trim());
+            return '';
+        },
         async query(sql: string) {
             sent.push(sql.trim());
             if (sql.includes('processors_profile_log')) {
@@ -127,13 +133,24 @@ describe('collectProfile', () => {
         const client = fakeClient([[ONE_PROCESSOR]]);
         await collectProfile(client, 'SELECT 1', { queryId: 'abc', canFlushLogs: true, sleep: never });
 
-        expect(client.sent.some(sql => sql === 'SYSTEM FLUSH LOGS')).toBe(true);
+        expect(client.executed).toContain('SYSTEM FLUSH LOGS');
+    });
+
+    it('sends the flush as a statement, not as something expecting rows back', async () => {
+        // query() appends a FORMAT clause, which is a syntax error after
+        // SYSTEM FLUSH LOGS — so the flush failed every time and the wait
+        // quietly covered for it.
+        const client = fakeClient([[ONE_PROCESSOR]]);
+        await collectProfile(client, 'SELECT 1', { queryId: 'abc', canFlushLogs: true, sleep: never });
+
+        expect(client.sent.some(sql => sql.includes('FLUSH LOGS'))).toBe(false);
     });
 
     it('does not flush on a profile that may not write', async () => {
         const client = fakeClient([[ONE_PROCESSOR]]);
         await collectProfile(client, 'SELECT 1', { queryId: 'abc', canFlushLogs: false, sleep: never });
 
+        expect(client.executed.some(sql => sql.includes('FLUSH LOGS'))).toBe(false);
         expect(client.sent.some(sql => sql.includes('FLUSH LOGS'))).toBe(false);
     });
 });

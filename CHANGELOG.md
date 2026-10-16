@@ -6,6 +6,18 @@ All notable changes to this extension will be documented in this file.
 
 ### Added
 
+- **Analyze knows a distributed query ran on several shards.** When the query was
+  distributed, the findings say what each shard was asked to read and whether that was
+  even — a distributed query is only as quick as its slowest shard, so the busiest one
+  sets the time.
+
+  The initiator's own row in `query_log` counts the whole query rather than its shard,
+  so its local share is what is left once the remote shards are taken off. Presented
+  straight, it would show the initiator doing all the work.
+
+  It runs last, after the plan and the rest of the findings, and costs nothing on a
+  single node: a query that ran in one place returns nothing and nothing is shown.
+
 - **A cluster, as a map.** "ClickHouse: Show Cluster" draws shards across and replicas
   down, with the findings beside it: a host that did not answer, a shard short of
   replicas, a read-only replica and how long it has been one, replication lag, a queue
@@ -124,6 +136,13 @@ All notable changes to this extension will be documented in this file.
   waiting rather than calling it parallelism.
 
 ### Fixed
+
+- **`SYSTEM FLUSH LOGS` never ran.** `query` appends a FORMAT clause so it can read rows
+  back, and a FORMAT clause after SYSTEM is a syntax error — so the flush failed every
+  time Analyze was asked for one, and the poll that follows quietly covered for it.
+  Every Analyze on a writable profile had been waiting for the timer instead. It goes
+  through `execute` now, which sends a statement as written: the same profile collects
+  in 1.5s rather than 3 to 5.
 
 - **An exported SVG would not open.** `XMLSerializer` emits `xmlns` for an element
   already in the SVG namespace, and the exporter set it again as a plain attribute. Two

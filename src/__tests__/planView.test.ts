@@ -17,6 +17,7 @@ function payload(over: Partial<PlanPayload> = {}): PlanPayload {
 
     return {
         sql: 'SELECT user_id FROM events',
+        queryId: 'test-query-id',
         profile: 'local',
         explain: readFileSync(join(__dirname, 'fixtures', 'explain-plan.txt'), 'utf8'),
         graph: buildPlanGraph(rows),

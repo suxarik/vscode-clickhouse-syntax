@@ -8,7 +8,7 @@
 import * as vscode from 'vscode';
 import { AnalysisCache } from '../analysis';
 import { ConnectionManager } from '../client/connectionManager';
-import { newQueryId } from '../client/httpClient';
+import { ClickHouseClient, newQueryId } from '../client/httpClient';
 import { classifyStatement } from '../client/safety';
 import { resolveTarget } from '../client/queryRunner';
 import { parse } from '../parser/parser';
@@ -21,6 +21,8 @@ import { parsePlan, summarizePlan } from '../client/explain';
 import { advise } from '../advice/engine';
 import { enrichFindings } from '../advice/enrich';
 import { AdviceDiagnostics, AdviceSource } from '../advice/diagnostics';
+import { fetchDistributedWork } from '../cluster/distributed';
+import { distributedFindings } from '../cluster/rules';
 import {
     observe,
     summariseTable,
@@ -38,6 +40,8 @@ export function registerAnalyzeCommands(
     /** Abandons the advice of a plan that has been replaced. */
     let adviceRun: AbortController | undefined;
     const diagnostics = new AdviceDiagnostics();
+    /** Resolved once per session: the cluster this server belongs to, if any. */
+    let clusterName: string | undefined | null;
     const observations = new ObservationStore(memento);
 
     /**
@@ -86,11 +90,20 @@ export function registerAnalyzeCommands(
         const enriched = await enrichFindings(found, client, { signal: run.signal });
         if (run.signal.aborted) return;
 
-        panel.post({ type: 'findings', findings: enriched, replace: true });
+        const shards = await adviseOnShards(
+            client,
+            payload.queryId,
+            connections.activeProfile()?.allowWrite === true,
+            run.signal
+        );
+        if (run.signal.aborted) return;
+
+        const all = [...enriched, ...shards];
+        panel.post({ type: 'findings', findings: all, replace: true });
         void recordWhatWasSeen(payload, program, enriched);
         // Only now, so the squiggle carries the enriched wording rather than
         // the first draft of it.
-        if (where && source) diagnostics.show(where.document, source, enriched);
+        if (where && source) diagnostics.show(where.document, source, all);
     }
 
     return [
@@ -270,8 +283,9 @@ export function registerAnalyzeCommands(
         });
         const explain = explained.rows.map(row => String(row[0] ?? '')).join('\n');
 
+        const queryId = newQueryId();
         const collected = await collectProfile(client, sql, {
-            queryId: newQueryId(),
+            queryId,
             canFlushLogs,
             maxExecutionTime: config.get<number>('query.maxExecutionTime', 60),
         });
@@ -287,6 +301,7 @@ export function registerAnalyzeCommands(
 
         return {
             sql,
+            queryId,
             profile,
             explain,
             graph: buildPlanGraph(collected.rows),
@@ -307,6 +322,59 @@ export function registerAnalyzeCommands(
      * Column names, a pruning fraction and a row count. Never the query, never
      * a literal, never a result.
      */
+    /**
+     * The cluster this server is part of, asked once.
+     *
+     * A single node still reports a `default` cluster containing only itself,
+     * so the question is whether any cluster has more than one host.
+     */
+    async function clusterOf(client: { query: ClickHouseClient['query'] }): Promise<string | undefined> {
+        if (clusterName !== undefined) return clusterName ?? undefined;
+
+        clusterName = null;
+        try {
+            const answer = await client.query(
+                'SELECT cluster FROM system.clusters GROUP BY cluster HAVING count() > 1 ' +
+                    'ORDER BY count() DESC LIMIT 1',
+                { readOnly: true, maxExecutionTime: 10 }
+            );
+            clusterName = answer.rows[0] ? String(answer.rows[0][0] ?? '') || null : null;
+        } catch {
+            // Not permitted to read system.clusters, which is not a problem
+            // worth reporting for a feature that only adds to the picture.
+        }
+        return clusterName ?? undefined;
+    }
+
+    /**
+     * What each shard did, when the query was distributed.
+     *
+     * Last of all, because it costs two more round trips and adds to a plan
+     * that is already on screen. A query that ran on one node returns nothing
+     * and nothing is shown.
+     */
+    async function adviseOnShards(
+        client: ClickHouseClient,
+        queryId: string,
+        canFlushLogs: boolean,
+        signal: AbortSignal
+    ): Promise<Finding[]> {
+        const cluster = await clusterOf(client);
+        if (!cluster || signal.aborted) return [];
+
+        // Each shard logged its own subquery locally, so every node has to
+        // flush before any of them can be read.
+        if (canFlushLogs) {
+            await client
+                .execute(`SYSTEM FLUSH LOGS ON CLUSTER ${cluster}`, { maxExecutionTime: 15 })
+                .catch(() => undefined);
+        }
+        if (signal.aborted) return [];
+
+        const work = await fetchDistributedWork(client, cluster, queryId);
+        return work ? distributedFindings(work) : [];
+    }
+
     async function recordWhatWasSeen(
         payload: PlanPayload,
         program: ReturnType<typeof parse>['program'],

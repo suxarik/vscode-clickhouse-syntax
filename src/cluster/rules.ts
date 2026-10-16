@@ -7,6 +7,7 @@
  */
 import { Finding } from '../advice/types';
 import { ClusterView, DataPlacement, ReplicaHealth } from './types';
+import { DistributedProfile } from './distributed';
 
 /** Below this, a delay is ordinary scheduling rather than a problem. */
 const LAG_SECONDS = 30;
@@ -207,4 +208,33 @@ function placementFindings(placement: DataPlacement[]): Finding[] {
     }
 
     return findings;
+}
+
+/**
+ * What one distributed query asked of each shard.
+ *
+ * Uneven work here and uneven data placement are the same fault seen twice —
+ * but a query can be skewed on well-spread data too, when its filter matches
+ * rows that happen to live together.
+ */
+export function distributedFindings(profile: DistributedProfile): Finding[] {
+    if (profile.shards.length < 2 || profile.skew < SKEW_RATIO) return [];
+
+    const busiest = [...profile.shards].sort((a, b) => b.readRows - a.readRows)[0];
+    const quietest = [...profile.shards].sort((a, b) => a.readRows - b.readRows)[0];
+
+    return [
+        {
+            ruleId: 'shard-work-skew',
+            importance: 'medium',
+            title: 'The shards did very different amounts of work',
+            evidence:
+                `shard ${busiest.shard} read ${busiest.readRows.toLocaleString('en-US')} rows, ` +
+                `shard ${quietest.shard} read ${quietest.readRows.toLocaleString('en-US')} ` +
+                `(${profile.skew.toFixed(1)}x)`,
+            suggestion:
+                'A distributed query is only as quick as its slowest shard, so the busiest one sets the time. ' +
+                'Either the sharding key does not divide the table, or this filter matches rows that live together.',
+        },
+    ];
 }
