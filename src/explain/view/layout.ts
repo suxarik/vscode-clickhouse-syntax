@@ -136,6 +136,14 @@ export interface FoldedGraph extends Omit<PlanGraph, 'nodes'> {
 export interface FoldOptions {
     /** Steps below this share of CPU may be folded. Zero keeps every step. */
     foldBelow?: number;
+    /**
+     * Runs the reader has opened, by id.
+     *
+     * Folding hides steps, so there has to be a way back in. The id is derived
+     * from the run's last member and so survives a redraw, which is what lets
+     * a run stay open while the drawing is rebuilt around it.
+     */
+    expanded?: ReadonlySet<string>;
 }
 
 const DEFAULT_FOLD_BELOW = 0.01;
@@ -185,6 +193,8 @@ export function foldGraph(graph: PlanGraph, options: FoldOptions = {}): FoldedGr
         if (members.length < 2) continue;
 
         const runId = `fold:${members[members.length - 1].id}`;
+        if (options.expanded?.has(runId)) continue;
+
         for (const member of members) runOf.set(member.id, runId);
         runs.set(runId, members);
     }

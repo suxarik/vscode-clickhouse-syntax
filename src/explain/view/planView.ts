@@ -76,6 +76,10 @@ export class PlanView {
     /** Built by `toolbar()`, which the constructor calls before anything uses it. */
     private findingsToggle!: HTMLButtonElement;
     private findings: Finding[] = [];
+    /** Folded runs the reader has opened, by id. */
+    private readonly expanded = new Set<string>();
+    private expandAll = false;
+    private expandToggle!: HTMLButtonElement;
     private readonly tip: HTMLElement;
     private readonly buttons = new Map<ViewKind, HTMLButtonElement>();
 
@@ -161,6 +165,22 @@ export class PlanView {
             zooms.append(button);
         }
 
+        this.expandToggle = html('button', '', 'Expand all') as HTMLButtonElement;
+        this.expandToggle.title = 'Show every step, including the ones folded away';
+        this.expandToggle.classList.add('ch-expand-toggle');
+        this.expandToggle.addEventListener('click', () => {
+            // Opening a run replaces its bar with its contents, so there is
+            // nothing left to click to put it back. This button is the way
+            // back, and it has to mean "collapse" whenever anything is open —
+            // whether it was opened one run at a time or all at once.
+            const anythingOpen = this.expandAll || this.expanded.size > 0;
+            this.expandAll = !anythingOpen;
+            this.expanded.clear();
+            this.draw();
+        });
+        const expandGroup = html('div', 'ch-views ch-zooms');
+        expandGroup.append(this.expandToggle);
+
         this.findingsToggle = html('button', '', 'Findings') as HTMLButtonElement;
         this.findingsToggle.title = 'What the measurements suggest';
         this.findingsToggle.classList.add('ch-findings-toggle');
@@ -178,7 +198,7 @@ export class PlanView {
             exports.append(button);
         }
 
-        bar.append(views, zooms, findingsGroup, exports);
+        bar.append(views, zooms, expandGroup, findingsGroup, exports);
         return bar;
     }
 
@@ -381,6 +401,8 @@ export class PlanView {
     private draw(): void {
         if (!this.payload) return;
         this.legend.textContent = this.describeView();
+        this.expandToggle.textContent =
+            this.expandAll || this.expanded.size > 0 ? 'Collapse all' : 'Expand all';
         const drawing = this.kind === 'flame' ? this.drawFlame() : this.drawGraph();
         this.applyZoom(drawing);
         this.canvas.replaceChildren(this.tip, drawing);
@@ -417,8 +439,13 @@ export class PlanView {
         return Math.max(MIN_CANVAS, this.canvas.clientWidth - 16);
     }
 
+    /** How the plan is folded right now; both drawings ask the same question. */
+    private foldOptions(): { expanded: ReadonlySet<string>; foldBelow?: number } {
+        return { expanded: this.expanded, foldBelow: this.expandAll ? 0 : undefined };
+    }
+
     private drawFlame(): SVGSVGElement {
-        const cells = flameLayout(this.payload!.graph);
+        const cells = flameLayout(this.payload!.graph, this.foldOptions());
         const width = this.width();
         const depth = Math.max(...cells.map(cell => cell.depth), 0) + 1;
         const height = depth * ROW + 8;
@@ -482,7 +509,8 @@ export class PlanView {
         // such a bar should pay for it. Charging a narrow one for text it never
         // shows leaves a block with nothing written on it at all.
         const showTime = w > 90;
-        const label = fit(node.label, showTime ? w - time.length * 6.4 : w);
+        const name = cell.foldedCount > 0 ? `▸ ${node.label}` : node.label;
+        const label = fit(name, showTime ? w - time.length * 6.4 : w);
         if (label) {
             const text = element('text', {
                 x: x + 6,
@@ -512,12 +540,12 @@ export class PlanView {
         const feeds = cell.feeds
             ? `feeds ${cell.feeds.label}${cell.feeds.inputs > 1 ? ` · one of ${cell.feeds.inputs} inputs` : ''}`
             : undefined;
-        this.wire(group, cell.id, node.label, node, feeds);
+        this.wire(group, cell.id, node.label, node, feeds, cell.foldedCount > 0);
         return group;
     }
 
     private drawGraph(): SVGSVGElement {
-        const laid: DagLayoutResult = dagLayout(this.payload!.graph);
+        const laid: DagLayoutResult = dagLayout(this.payload!.graph, this.foldOptions());
         const width = this.width();
         // Tall enough that every layer gap can hold an arrowhead. Without this
         // a deep plan squeezes the gaps below the head's own length, and the
@@ -644,7 +672,7 @@ export class PlanView {
                 'text-anchor': 'middle',
                 class: 'ch-label',
             });
-            name.textContent = fit(node.label, w);
+            name.textContent = fit(node.folded ? `▸ ${node.label}` : node.label, w);
             group.append(name);
 
             const detail = element('text', {
@@ -668,7 +696,14 @@ export class PlanView {
             const feeds = target
                 ? `feeds ${target.label}${target.inputs.length > 1 ? ` · one of ${target.inputs.length} inputs` : ''}`
                 : undefined;
-            this.wire(group, node.id, node.label, node, feeds ?? 'the end of the pipeline · rows are discarded by FORMAT Null');
+            this.wire(
+                group,
+                node.id,
+                node.label,
+                node,
+                feeds ?? 'the end of the pipeline · rows are discarded by FORMAT Null',
+                node.folded
+            );
             svg.append(group);
         }
         return svg;
@@ -729,15 +764,25 @@ export class PlanView {
         id: string,
         label: string,
         node: { cpuUs: number; processors: number; inputRows: number; outputRows: number; inputWaitUs: number; outputWaitUs: number; outputBytes: number; description: string },
-        feeds?: string
+        feeds?: string,
+        folds = false
     ): void {
-        group.addEventListener('mousemove', event => this.showTip(event, label, node, feeds));
+        const hint = folds ? 'click to open this run' : feeds;
+        group.addEventListener('mousemove', event => this.showTip(event, label, node, hint));
         group.addEventListener('mouseleave', () => {
             this.tip.style.display = 'none';
         });
         group.addEventListener('click', () => {
             if (this.panned) {
                 this.panned = false;
+                return;
+            }
+            // A folded run hides steps, so a click on one opens it rather than
+            // selecting a name that stands for several things at once.
+            if (folds) {
+                if (this.expanded.has(id)) this.expanded.delete(id);
+                else this.expanded.add(id);
+                this.draw();
                 return;
             }
             this.selected = this.selected === id ? undefined : id;

@@ -422,3 +422,61 @@ describe('what a bar sits under', () => {
         expect(flameLayout(joined()).find(cell => cell.id === 'Join_1')?.feeds).toBeUndefined();
     });
 });
+
+describe('opening a folded run', () => {
+    const chain = (): PlanGraph =>
+        graphOf([
+            ['Sink_1', 500, []],
+            ['Tiny_1', 1, ['Sink_1']],
+            ['Tiny_2', 1, ['Tiny_1']],
+            ['Read_1', 498, ['Tiny_2']],
+        ]);
+
+    it('gives a folded run an id that survives a redraw', () => {
+        const first = flameLayout(chain()).find(cell => cell.foldedCount > 0);
+        const second = flameLayout(chain()).find(cell => cell.foldedCount > 0);
+        expect(first?.id).toBe(second?.id);
+    });
+
+    it('shows the steps inside a run once it is named as expanded', () => {
+        const folded = flameLayout(chain()).find(cell => cell.foldedCount > 0)!;
+        const opened = flameLayout(chain(), { expanded: new Set([folded.id]) });
+
+        expect(opened.some(cell => cell.foldedCount > 0)).toBe(false);
+        expect(opened.map(cell => cell.id)).toEqual(expect.arrayContaining(['Tiny_1', 'Tiny_2']));
+    });
+
+    it('leaves other runs folded when one is opened', () => {
+        const graph = graphOf([
+            ['Sink_1', 500, []],
+            ['A1_1', 1, ['Sink_1']],
+            ['A2_1', 1, ['A1_1']],
+            ['Mid_1', 200, ['A2_1']],
+            ['B1_1', 1, ['Mid_1']],
+            ['B2_1', 1, ['B1_1']],
+            ['Read_1', 296, ['B2_1']],
+        ]);
+        const runs = flameLayout(graph).filter(cell => cell.foldedCount > 0);
+        expect(runs).toHaveLength(2);
+
+        const opened = flameLayout(graph, { expanded: new Set([runs[0].id]) });
+        expect(opened.filter(cell => cell.foldedCount > 0)).toHaveLength(1);
+    });
+
+    it('carries the steps a run stands for, so they can be listed', () => {
+        const folded = flameLayout(chain()).find(cell => cell.foldedCount > 0)!;
+        expect(folded.node.members.map(member => member.label)).toEqual(['Tiny', 'Tiny']);
+    });
+
+    it('opens every run at once when folding is switched off', () => {
+        const graph = chain();
+        const opened = flameLayout(graph, { foldBelow: 0 });
+        expect(opened).toHaveLength(graph.nodes.length);
+    });
+
+    it('opens runs in the node-link view too', () => {
+        const folded = dagLayout(chain()).nodes.find(node => node.folded)!;
+        const opened = dagLayout(chain(), { expanded: new Set([folded.id]) });
+        expect(opened.nodes.some(node => node.folded)).toBe(false);
+    });
+});

@@ -225,6 +225,90 @@ describe('PlanView', () => {
         expect(sink?.textContent ?? '').not.toMatch(/\b0 rows\b/);
     });
 
+    const foldedCell = (root: HTMLElement): SVGGElement | undefined =>
+        [...root.querySelectorAll('.ch-cell')].find(cell =>
+            (cell.textContent ?? '').includes('minor steps')
+        ) as SVGGElement | undefined;
+
+    it('marks a folded run as something that opens', () => {
+        const { root, send } = mount();
+        send({ type: 'plan', payload: forkedPayload() });
+
+        expect((foldedCell(root)?.textContent ?? '')).toMatch(/[▸▾]/);
+    });
+
+    it('opens a folded run when it is clicked', () => {
+        const { root, send } = mount();
+        send({ type: 'plan', payload: forkedPayload() });
+
+        const before = root.querySelectorAll('.ch-cell').length;
+        foldedCell(root)!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+        expect(root.querySelectorAll('.ch-cell').length).toBeGreaterThan(before);
+    });
+
+    it('offers the way back once a run has been opened', () => {
+        // Opening a run replaces its bar with its contents, so the bar itself
+        // cannot be the way to close it again. The toolbar has to be.
+        const { root, send } = mount();
+        send({ type: 'plan', payload: forkedPayload() });
+        const button = root.querySelector('.ch-expand-toggle') as HTMLButtonElement;
+
+        const before = root.querySelectorAll('.ch-cell').length;
+        expect(button.textContent).toContain('Expand');
+
+        foldedCell(root)!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        expect(button.textContent).toContain('Collapse');
+
+        button.click();
+        expect(root.querySelectorAll('.ch-cell').length).toBe(before);
+        expect(button.textContent).toContain('Expand');
+    });
+
+    it('opens and closes every run from the toolbar', () => {
+        const { root, send } = mount();
+        send({ type: 'plan', payload: forkedPayload() });
+        const button = root.querySelector('.ch-expand-toggle') as HTMLButtonElement;
+
+        const folded = root.querySelectorAll('.ch-cell').length;
+        button.click();
+        const all = root.querySelectorAll('.ch-cell').length;
+        expect(all).toBeGreaterThan(folded);
+        expect(button.textContent).toContain('Collapse');
+
+        button.click();
+        expect(root.querySelectorAll('.ch-cell').length).toBe(folded);
+        expect(button.textContent).toContain('Expand');
+    });
+
+    it('opens runs in the graph view as well', () => {
+        const { root, send } = mount();
+        send({ type: 'plan', payload: forkedPayload() });
+        ([...root.querySelectorAll('.ch-views button')].find(b => b.textContent === 'Graph') as HTMLButtonElement).click();
+
+        const before = root.querySelectorAll('.ch-cell').length;
+        (root.querySelector('.ch-expand-toggle') as HTMLButtonElement).click();
+        expect(root.querySelectorAll('.ch-cell').length).toBeGreaterThan(before);
+    });
+
+    it('exports whatever is on screen, opened runs included', async () => {
+        const { root, send, sent } = mount();
+        send({ type: 'plan', payload: forkedPayload() });
+        (root.querySelector('.ch-expand-toggle') as HTMLButtonElement).click();
+
+        ([...root.querySelectorAll('.ch-export button')].find(b => b.textContent === 'SVG') as HTMLButtonElement).click();
+        await Promise.resolve();
+
+        const exported = sent.find(message => message.type === 'export');
+        const markup = (exported && 'data' in exported && exported.data) || '';
+        // Labels are clipped to their bar, so the test asks what the file is
+        // of rather than what it spells: no folded runs, and more steps drawn.
+        expect(markup).not.toContain('minor steps');
+        expect((markup.match(/class="ch-cell"/g) ?? []).length).toBeGreaterThan(
+            root.querySelectorAll('.ch-cell').length - 1
+        );
+    });
+
     it('keeps the findings out of the way when there are none', () => {
         const { root, send } = mount();
         send({ type: 'plan', payload: payload() });

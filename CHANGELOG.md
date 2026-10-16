@@ -2,7 +2,7 @@
 
 All notable changes to this extension will be documented in this file.
 
-## [2.4.4] - 2026-10-16
+## [2.4.5] - 2026-10-16
 
 ### Added
 
@@ -41,6 +41,13 @@ All notable changes to this extension will be documented in this file.
   An exported file carries a margin, and a background that covers it: the first and last
   rows sat against the edge, and the background started inside the margin it was meant
   to fill.
+
+  **Folded runs open.** A run of negligible steps is drawn as one bar, which keeps the
+  picture readable and hides what is inside it. Clicking the bar opens it, "Expand all"
+  opens every one, and the same button is the way back — opening a run replaces its bar
+  with its contents, so the bar itself cannot be what closes it again. An exported file
+  shows whatever is on screen at the time, opened runs included, because the export is
+  made from the drawing rather than rebuilt from the data.
 
   **Advice from the measurements, not the text.** A findings pane beside the drawing
   says what this query, on this data, actually cost: an index that pruned nothing, an
