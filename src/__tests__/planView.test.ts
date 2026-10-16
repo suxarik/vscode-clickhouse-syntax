@@ -32,6 +32,15 @@ function payload(over: Partial<PlanPayload> = {}): PlanPayload {
     };
 }
 
+/** A three-table join: the plan forks, which a chain fixture never does. */
+function forkedPayload(): PlanPayload {
+    const rows = readFileSync(join(__dirname, 'fixtures', 'processors-profile-fork.jsonl'), 'utf8')
+        .split('\n')
+        .filter(Boolean)
+        .map(line => JSON.parse(line) as ProcessorRow);
+    return { ...payload(), graph: buildPlanGraph(rows) };
+}
+
 function mount() {
     const root = document.createElement('div');
     document.body.append(root);
@@ -184,6 +193,70 @@ describe('PlanView', () => {
         const svg = root.querySelector('.ch-canvas svg')!;
         expect(Number(svg.getAttribute('width'))).toBeGreaterThan(400);
         expect(oneToOne.className).toContain('ch-on');
+    });
+
+    it('labels a narrow bar, which has no duration taking up its room', () => {
+        // The duration is only drawn on a wide bar, so subtracting its width
+        // from a narrow one reserves space for text that is never there and
+        // leaves an unexplained block.
+        const { root, send } = mount();
+        send({ type: 'plan', payload: forkedPayload() });
+
+        const unlabelled = [...root.querySelectorAll('.ch-canvas .ch-cell')].filter(cell => {
+            const width = Number((cell.querySelector('rect') as SVGRectElement).getAttribute('width'));
+            return width > 30 && !(cell.textContent ?? '').trim();
+        });
+        expect(unlabelled).toHaveLength(0);
+    });
+
+    it('pans the drawing when it is dragged', () => {
+        const { root, send } = mount();
+        send({ type: 'plan', payload: payload() });
+
+        const canvas = root.querySelector('.ch-canvas') as HTMLElement;
+        canvas.scrollLeft = 120;
+        canvas.scrollTop = 90;
+
+        canvas.dispatchEvent(new MouseEvent('mousedown', { clientX: 300, clientY: 300, bubbles: true }));
+        window.dispatchEvent(new MouseEvent('mousemove', { clientX: 250, clientY: 260, bubbles: true }));
+
+        // Dragging left and up moves the view right and down.
+        expect(canvas.scrollLeft).toBe(170);
+        expect(canvas.scrollTop).toBe(130);
+
+        window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    });
+
+    it('does not select a step when the drag was a pan', () => {
+        const { root, send } = mount();
+        send({ type: 'plan', payload: payload() });
+
+        const canvas = root.querySelector('.ch-canvas') as HTMLElement;
+        const cell = root.querySelector('.ch-cell') as SVGGElement;
+
+        canvas.dispatchEvent(new MouseEvent('mousedown', { clientX: 300, clientY: 300, bubbles: true }));
+        window.dispatchEvent(new MouseEvent('mousemove', { clientX: 240, clientY: 300, bubbles: true }));
+        window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+        cell.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+        expect(root.querySelectorAll('.ch-explain-body .ch-match')).toHaveLength(0);
+    });
+
+    it('zooms in and out a step at a time', () => {
+        const { root, send } = mount();
+        send({ type: 'plan', payload: payload() });
+
+        const widthNow = (): number => Number(root.querySelector('.ch-canvas svg')!.getAttribute('width'));
+        const press = (label: string): void =>
+            ([...root.querySelectorAll('.ch-zooms button')].find(b => b.textContent === label) as HTMLButtonElement).click();
+
+        const fitted = widthNow();
+        press('+');
+        const zoomedIn = widthNow();
+        expect(zoomedIn).toBeGreaterThan(fitted);
+
+        press('−');
+        expect(widthNow()).toBeLessThan(zoomedIn);
     });
 
     it('does not call waiting parallelism', () => {

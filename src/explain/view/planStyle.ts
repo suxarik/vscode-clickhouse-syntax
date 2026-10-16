@@ -63,8 +63,11 @@ body {
 }
 .ch-views button:hover, .ch-export button:hover { background: var(--vscode-toolbar-hoverBackground, rgba(128,128,128,.2)); }
 .ch-zooms { margin-left: 10px; }
+.ch-zooms button { min-width: 26px; }
 .ch-export { display: flex; gap: 2px; align-items: center; margin-left: auto; }
-.ch-canvas { flex: 1; overflow: auto; position: relative; }
+.ch-canvas { flex: 1; overflow: auto; position: relative; cursor: grab; }
+.ch-canvas.ch-panning { cursor: grabbing; }
+.ch-canvas.ch-panning .ch-cell { cursor: grabbing; }
 .ch-canvas svg { display: block; }
 
 .ch-cell { cursor: pointer; }

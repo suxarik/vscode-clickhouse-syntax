@@ -28,6 +28,16 @@ interface TableEntry {
 export type SchemaSource = 'connection' | 'file' | 'both';
 
 export class SchemaManager implements vscode.Disposable {
+    private readonly schemaChanged = new vscode.EventEmitter<void>();
+    /**
+     * Fired whenever the known schema changes.
+     *
+     * The live schema arrives from a background sync, long after anything
+     * showing it has already drawn itself. Without this, a view keeps
+     * displaying its empty state over a schema that did load.
+     */
+    readonly onDidChangeSchema = this.schemaChanged.event;
+
     private schema: ClickHouseSchema | null = null;
     /** Schema read from the JSON file(s). */
     private fileSchema: ClickHouseSchema | null = null;
@@ -169,6 +179,7 @@ export class SchemaManager implements vscode.Disposable {
     setLiveSchema(schema: ClickHouseSchema | null): void {
         this.liveSchema = schema;
         this.recompute();
+        this.schemaChanged.fire();
     }
 
     getLiveSchema(): ClickHouseSchema | null {

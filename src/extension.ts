@@ -117,6 +117,7 @@ export function activate(context: vscode.ExtensionContext) {
         schemaSync,
         liveDiagnostics,
         treeView,
+        explorer,
         ...registerExplorerCommands(explorer, queryRunner, analysisCache, schemaSync),
         ...registerExplainCommands(connections, analysisCache, explainProvider),
         ...registerHistoryCommands(queryHistory, queryRunner, connections, analysisCache, validator),

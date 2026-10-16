@@ -30,10 +30,19 @@ export class ExplorerProvider implements vscode.TreeDataProvider<ExplorerNode> {
     private statistics = new Map<string, TableStatistics>();
     private statisticsProfile: string | undefined;
 
+    private readonly subscription: vscode.Disposable;
+
     constructor(
         private readonly schemaManager: SchemaManager,
         private readonly connections: ConnectionManager
-    ) {}
+    ) {
+        // The schema usually arrives after this tree has drawn itself empty.
+        this.subscription = this.schemaManager.onDidChangeSchema(() => this.refresh());
+    }
+
+    dispose(): void {
+        this.subscription.dispose();
+    }
 
     refresh(): void {
         this.changed.fire(undefined);

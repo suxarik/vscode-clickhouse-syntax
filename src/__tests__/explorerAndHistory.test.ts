@@ -85,7 +85,11 @@ describe('explorer tree', () => {
     it('is empty when there is no schema, so the welcome content can show', () => {
         // A dead-end message node would hide the view's welcome buttons.
         const explorer = new ExplorerProvider(
-            { getSchema: () => null, getTables: () => [] } as unknown as SchemaManager,
+            {
+                getSchema: () => null,
+                getTables: () => [],
+                onDidChangeSchema: () => ({ dispose: () => undefined }),
+            } as unknown as SchemaManager,
             new ConnectionManager(makeContext())
         );
         expect(explorer.getChildren()).toEqual([]);
@@ -352,5 +356,29 @@ describe('previewStatement', () => {
 
     it('quotes names that need it', () => {
         expect(previewStatement('my db', 'my-table', 10)).toBe('SELECT * FROM `my db`.`my-table` LIMIT 10');
+    });
+});
+
+describe('the explorer and a schema that arrives later', () => {
+    it('redraws itself when the background sync finishes', async () => {
+        // The schema is fetched after the tree has already been drawn empty.
+        // Without a signal the view keeps offering "No tables loaded yet"
+        // while a perfectly good schema sits behind it.
+        const schemaManager = await makeSchemaManager();
+        const explorer = new ExplorerProvider(schemaManager, {
+            activeProfileName: () => 'local',
+            client: async () => undefined,
+        } as unknown as ConnectionManager);
+
+        let redrawn = 0;
+        explorer.onDidChangeTreeData(() => {
+            redrawn += 1;
+        });
+
+        schemaManager.setLiveSchema({
+            databases: [{ name: 'demo', tables: [{ name: 'events', columns: [], engine: 'MergeTree' }] }],
+        });
+
+        expect(redrawn).toBeGreaterThan(0);
     });
 });

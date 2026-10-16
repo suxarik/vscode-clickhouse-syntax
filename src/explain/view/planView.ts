@@ -12,7 +12,7 @@
  */
 import { PlanHostMessage, PlanPayload, PlanTransport, ImageFormat } from '../protocol';
 import { FlameCell, dagLayout, flameLayout, DagLayoutResult } from './layout';
-import { Palette, heatAlpha, readPalette, withAlpha } from './palette';
+import { Palette, heatColor, readPalette, withAlpha } from './palette';
 import { prepareSvgForExport, rasterize } from './exportImage';
 import { formatBytes, formatCount } from '../../results/format';
 
@@ -27,6 +27,10 @@ const ARROW = 11;
 const ARROW_GAP = 3;
 /** Pixels a layer gap must have for an arrow and a visible line to fit in it. */
 const ARROW_ROOM = 38;
+/** How far one press of + or − moves, and how far they may go. */
+const ZOOM_STEP = 1.3;
+const MIN_ZOOM = 0.2;
+const MAX_ZOOM = 5;
 const GRAPH_WIDTH = 860;
 
 type ViewKind = 'flame' | 'graph';
@@ -72,6 +76,10 @@ export class PlanView {
     private palette: Palette = readPalette();
     private kind: ViewKind = 'flame';
     private zoom: Zoom = 'fit';
+    /** The scale actually applied, so stepping in starts from what is on screen. */
+    private appliedScale = 1;
+    /** Set while a drag is panning, so the drag does not also select a step. */
+    private panned = false;
     private readonly zoomButtons = new Map<string, HTMLButtonElement>();
     private payload?: PlanPayload;
     private selected?: string;
@@ -95,6 +103,8 @@ export class PlanView {
         this.canvas = html('div', 'ch-canvas');
         this.summary = html('div', 'ch-summary');
         planPane.append(this.canvas, this.summary);
+
+        this.makePannable(this.canvas);
 
         this.tip = html('div', 'ch-tip');
         this.tip.style.display = 'none';
@@ -124,12 +134,18 @@ export class PlanView {
 
         const zooms = html('div', 'ch-views ch-zooms');
         for (const [key, label, title] of [
+            ['out', '−', 'Zoom out'],
             ['fit', 'Fit', 'Scale the drawing to the panel'],
             ['one', '1:1', 'Draw at natural size'],
+            ['in', '+', 'Zoom in'],
         ] as Array<[string, string, string]>) {
             const button = html('button', key === 'fit' ? 'ch-on' : '', label) as HTMLButtonElement;
             button.title = title;
-            button.addEventListener('click', () => this.setZoom(key === 'fit' ? 'fit' : 1));
+            button.addEventListener('click', () => {
+                if (key === 'fit') this.setZoom('fit');
+                else if (key === 'one') this.setZoom(1);
+                else this.setZoom(this.stepped(key === 'in' ? ZOOM_STEP : 1 / ZOOM_STEP));
+            });
             this.zoomButtons.set(key, button);
             zooms.append(button);
         }
@@ -184,12 +200,49 @@ export class PlanView {
         this.draw();
     }
 
+    /** A step from whatever is on screen, so + continues from Fit. */
+    private stepped(factor: number): number {
+        return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, this.appliedScale * factor));
+    }
+
     private setZoom(zoom: Zoom): void {
         this.zoom = zoom;
         for (const [key, button] of this.zoomButtons) {
-            button.className = (key === 'fit') === (zoom === 'fit') ? 'ch-on' : '';
+            const on = key === 'fit' ? zoom === 'fit' : key === 'one' && zoom === 1;
+            button.className = on ? 'ch-on' : '';
         }
         this.draw();
+    }
+
+    /**
+     * Drag to move the drawing.
+     *
+     * Scrollbars alone are not enough once someone has zoomed in: the thing
+     * they want to move is under the pointer, so that is what they reach for.
+     */
+    private makePannable(canvas: HTMLElement): void {
+        let from: { x: number; y: number; left: number; top: number } | undefined;
+
+        canvas.addEventListener('mousedown', event => {
+            from = { x: event.clientX, y: event.clientY, left: canvas.scrollLeft, top: canvas.scrollTop };
+            this.panned = false;
+            canvas.classList.add('ch-panning');
+        });
+
+        window.addEventListener('mousemove', event => {
+            if (!from) return;
+            const dx = event.clientX - from.x;
+            const dy = event.clientY - from.y;
+            // A few pixels of travel is a click with a shaky hand, not a pan.
+            if (Math.abs(dx) > 3 || Math.abs(dy) > 3) this.panned = true;
+            canvas.scrollLeft = from.left - dx;
+            canvas.scrollTop = from.top - dy;
+        });
+
+        window.addEventListener('mouseup', () => {
+            from = undefined;
+            canvas.classList.remove('ch-panning');
+        });
     }
 
     private show(kind: ViewKind): void {
@@ -266,6 +319,7 @@ export class PlanView {
                 : this.zoom;
 
         if (!Number.isFinite(scale) || scale <= 0) return;
+        this.appliedScale = scale;
         drawing.setAttribute('width', String(Math.round(naturalWidth * scale)));
         drawing.setAttribute('height', String(Math.round(naturalHeight * scale)));
     }
@@ -304,7 +358,7 @@ export class PlanView {
             width: w,
             height: ROW - 3,
             rx: 2,
-            fill: withAlpha(this.palette.accent, heatAlpha(node.share)),
+            fill: heatColor(node.share),
             stroke: cell.id === this.selected
                 ? this.palette.foreground
                 : cell.bottleneck
@@ -337,7 +391,11 @@ export class PlanView {
         }
 
         const time = formatDuration(node.cpuUs);
-        const label = fit(cell.foldedCount ? `${node.label}` : node.label, w - time.length * 6.4);
+        // The duration is only drawn on a bar wide enough to hold it, so only
+        // such a bar should pay for it. Charging a narrow one for text it never
+        // shows leaves a block with nothing written on it at all.
+        const showTime = w > 90;
+        const label = fit(node.label, showTime ? w - time.length * 6.4 : w);
         if (label) {
             const text = element('text', {
                 x: x + 6,
@@ -350,7 +408,7 @@ export class PlanView {
             text.textContent = label;
             group.append(text);
         }
-        if (w > 90) {
+        if (showTime) {
             const right = element('text', {
                 x: x + w - 6,
                 y: y + ROW / 2 + 1,
@@ -465,7 +523,7 @@ export class PlanView {
                     width: w,
                     height: h,
                     rx: 3,
-                    fill: withAlpha(this.palette.accent, heatAlpha(node.share)),
+                    fill: heatColor(node.share),
                     stroke:
                         node.id === this.selected
                             ? this.palette.foreground
@@ -578,6 +636,10 @@ export class PlanView {
             this.tip.style.display = 'none';
         });
         group.addEventListener('click', () => {
+            if (this.panned) {
+                this.panned = false;
+                return;
+            }
             this.selected = this.selected === id ? undefined : id;
             this.highlightExplain(label);
             this.draw();

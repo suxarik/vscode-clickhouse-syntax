@@ -1,7 +1,7 @@
 /**
  * @jest-environment jsdom
  */
-import { heatAlpha, toRgbTriplet, withAlpha, readPalette } from '../explain/view/palette';
+import { heatAlpha, heatColor, toRgbTriplet, withAlpha, readPalette } from '../explain/view/palette';
 
 describe('toRgbTriplet', () => {
     it('reads a six digit hex colour', () => {
@@ -53,5 +53,33 @@ describe('readPalette', () => {
         const palette = readPalette();
         expect(palette.background).toMatch(/^#|rgb/);
         expect(palette.accent).toMatch(/^#|rgb/);
+    });
+});
+
+
+describe('heatColor', () => {
+    const channels = (color: string): number[] =>
+        (color.match(/[0-9.]+/g) ?? []).slice(0, 3).map(Number);
+
+    it('runs from yellow through orange to red as a step costs more', () => {
+        const [, , coolBlue] = channels(heatColor(0));
+        const [hotRed, hotGreen] = channels(heatColor(1));
+
+        // Cheap steps keep yellow's blue channel low but its green high;
+        // expensive ones lose the green entirely and end up red.
+        expect(channels(heatColor(0))[1]).toBeGreaterThan(hotGreen);
+        expect(hotRed).toBeGreaterThan(coolBlue);
+    });
+
+    it('gets stronger as the share grows, never weaker', () => {
+        const alphaOf = (share: number): number => Number((heatColor(share).match(/[0-9.]+/g) ?? [])[3]);
+        expect(alphaOf(0.8)).toBeGreaterThan(alphaOf(0.4));
+        expect(alphaOf(0.4)).toBeGreaterThan(alphaOf(0.02));
+    });
+
+    it('stays a usable colour at both ends', () => {
+        for (const share of [0, 0.5, 1, 2, -1]) {
+            expect(heatColor(share)).toMatch(/^rgba\(\d+, \d+, \d+, [0-9.]+\)$/);
+        }
     });
 });

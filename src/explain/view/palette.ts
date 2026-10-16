@@ -59,6 +59,47 @@ export function heatAlpha(share: number): number {
     return 0.2 + 0.75 * Math.sqrt(bounded);
 }
 
+/**
+ * ClickHouse's own yellow, through orange, to red.
+ *
+ * A heat ramp is what this encodes — how much of the query's time a step took —
+ * and it happens to be the palette ClickHouse is known by. Cheap steps stay
+ * faint so they recede; the expensive one arrives red and unmissable.
+ */
+const HEAT_STOPS: Array<{ at: number; rgb: [number, number, number]; alpha: number }> = [
+    { at: 0, rgb: [250, 255, 105], alpha: 0.22 },
+    { at: 0.5, rgb: [255, 153, 0], alpha: 0.68 },
+    { at: 1, rgb: [240, 68, 56], alpha: 0.95 },
+];
+
+function mix(from: number, to: number, amount: number): number {
+    return from + (to - from) * amount;
+}
+
+/** The fill for a step that took `share` of the query's CPU. */
+export function heatColor(share: number): string {
+    // Square-rooted for the same reason the alpha was: without it everything
+    // below a few percent collapses into one indistinguishable colour.
+    const position = Math.sqrt(Math.max(0, Math.min(1, share)));
+
+    let lower = HEAT_STOPS[0];
+    let upper = HEAT_STOPS[HEAT_STOPS.length - 1];
+    for (let index = 0; index < HEAT_STOPS.length - 1; index++) {
+        if (position >= HEAT_STOPS[index].at && position <= HEAT_STOPS[index + 1].at) {
+            lower = HEAT_STOPS[index];
+            upper = HEAT_STOPS[index + 1];
+            break;
+        }
+    }
+
+    const span = upper.at - lower.at || 1;
+    const amount = (position - lower.at) / span;
+    const channel = (index: 0 | 1 | 2): number => Math.round(mix(lower.rgb[index], upper.rgb[index], amount));
+    const alpha = mix(lower.alpha, upper.alpha, amount);
+
+    return `rgba(${channel(0)}, ${channel(1)}, ${channel(2)}, ${alpha.toFixed(3)})`;
+}
+
 function cssValue(styles: CSSStyleDeclaration, name: string, fallback: string): string {
     const value = styles.getPropertyValue(name).trim();
     return value || fallback;
@@ -72,8 +113,9 @@ export function readPalette(element: Element = document.documentElement): Palett
         muted: cssValue(styles, '--vscode-descriptionForeground', '#9d9d9d'),
         surface: cssValue(styles, '--vscode-editorWidget-background', '#252526'),
         border: cssValue(styles, '--vscode-panel-border', '#454545'),
-        accent: cssValue(styles, '--vscode-charts-blue', '#3794ff'),
-        hot: cssValue(styles, '--vscode-charts-orange', '#d18616'),
+        accent: cssValue(styles, '--vscode-charts-yellow', '#faff69'),
+        // ClickHouse yellow, bright enough to outline a step already red.
+        hot: '#faff69',
         background: cssValue(styles, '--vscode-editor-background', '#1e1e1e'),
     };
 }
