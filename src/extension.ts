@@ -19,6 +19,7 @@ import { ConnectionManager } from './client/connectionManager';
 import { registerLanguageModelTools } from './lm/tools';
 import { PlanPanel } from './explain/panel';
 import { registerAnalyzeCommands } from './explain/analyzeCommands';
+import { registerClusterCommands } from './cluster/commands';
 import { registerConnectionCommands } from './client/commands';
 import { registerConnectionSetupCommands } from './client/connectionSetup';
 import { registerDiagnosticsCommand } from './client/diagnostics';
@@ -130,6 +131,7 @@ export function activate(context: vscode.ExtensionContext) {
             new PlanPanel(context.extensionUri),
             context.globalState
         ),
+        ...registerClusterCommands(connections, context.extensionUri),
         ...registerLanguageModelTools(connections),
         connections.onDidChangeActiveProfile(() => explorer.reset())
     );

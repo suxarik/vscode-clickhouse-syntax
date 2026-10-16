@@ -2,9 +2,30 @@
 
 All notable changes to this extension will be documented in this file.
 
-## [2.4.7] - 2026-10-16
+## [2.5.0] - 2026-10-16
 
 ### Added
+
+- **A cluster, as a map.** "ClickHouse: Show Cluster" draws shards across and replicas
+  down, with the findings beside it: a host that did not answer, a shard short of
+  replicas, a read-only replica and how long it has been one, replication lag, a queue
+  that is not draining, lost parts, an expired Keeper session.
+
+  And where the rows actually are. A sharding key is a promise about distribution that
+  nothing checks — sharding by a column with three distinct values across two shards
+  puts 66.7% on one of them, and the cluster is then only as fast as its busiest node.
+  No single node can see it; each looks perfectly healthy holding whatever share it was
+  given. Replicas of one shard are compared with each other too, since they should hold
+  the same rows and a gap means one is behind or has lost parts.
+
+  Every box is the same size, because a cluster is a map rather than a measurement:
+  sizing a replica by its rows would make the busiest shard look like more of the
+  cluster than it is. The bar inside each box is the measurement. The toolbar, canvas,
+  findings pane, summary and export are the plan view's, down to the stylesheet.
+
+  It only reads. A cluster is looked at during an incident, which is exactly when a
+  tool should not be able to make anything worse.
+
 
 - **A plan visualiser, from the profile rather than the estimate.** `◉ Analyze`,
   beside Run and Explain, runs the query and reads `system.processors_profile_log`:
