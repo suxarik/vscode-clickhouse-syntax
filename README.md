@@ -151,6 +151,23 @@ what each shard was asked to read and whether that was even.
 Everything here reads. A cluster is looked at during an incident, which is
 exactly when a tool should not be able to make anything worse.
 
+### 🩺 Storage health
+
+**ClickHouse: Show Storage Health** answers the question asked when inserts start
+failing, from the server's own `system` tables. Right-click the server, or a
+single table, in the explorer to look at everything or at one table.
+
+It reports a partition close to `parts_to_throw_insert` — the point where inserts
+fail with `TOO_MANY_PARTS` — read from the server's own settings rather than
+assumed; a mutation that keeps failing, with the error and the `KILL MUTATION`
+that ends it; a merge that has run for hours; a disk running out of room for
+merges; and parts ClickHouse detached itself, which are rows missing from the
+table. One finding per table, each with the number behind it.
+
+Each question is its own query. If you lack rights on one of them, the page says
+which it could not read, rather than leaving a blank that looks like health.
+Everything here reads.
+
 ### 🧱 dbt and migrations
 
 **dbt models parse.** `{{ ref('users') }}`, `{% if is_incremental() %}` and
@@ -291,13 +308,13 @@ IntelliSense can never disagree.
 
 | Catalog | Entries |
 | --- | --- |
-| functions | 1918 (1683 documented) |
-| table functions | 95 |
+| functions | 2008 (1723 documented) |
+| table functions | 99 |
 | data types | 141 |
-| table engines | 83 |
-| settings | 2226 |
-| formats | 114 |
-| `system` tables | 155 |
+| table engines | 85 |
+| settings | 2343 |
+| formats | 116 |
+| `system` tables | 178 |
 
 **ClickHouse: Show Catalog Info** reports which server version the shipped
 catalog came from.
@@ -306,7 +323,7 @@ catalog came from.
 
 ## Commands
 
-47 commands, all under **ClickHouse:** in the palette. The ones worth knowing:
+48 commands, all under **ClickHouse:** in the palette. The ones worth knowing:
 
 | Command | What it does |
 | --- | --- |
@@ -315,6 +332,7 @@ catalog came from.
 | Explain Query | `Ctrl+Shift+Enter` — the plan, without running the query |
 | Analyze Query | Runs it and draws where the time went |
 | Show Cluster | Shards, replicas, and where the data sits |
+| Show Storage Health | Parts, merges, mutations, disks and detached parts |
 | Advise on Schema | What several analysed queries had in common |
 | Cancel Query | Sends `KILL QUERY` |
 | Profile Last Query | Real counters from `system.query_log` |

@@ -2,7 +2,7 @@
   "name": "clickhouse-syntax",
   "displayName": "ClickHouse SQL \u2014 IDE & Runbooks",
   "description": "Run, explain and profile ClickHouse queries without leaving the editor. Result grid, incident runbooks, dbt models, schema migrations.",
-  "version": "2.5.7",
+  "version": "2.6.0",
   "publisher": "SuXarikisme",
   "icon": "images/icon.png",
   "engines": {
@@ -325,6 +325,12 @@
         "title": "Show Cluster",
         "category": "ClickHouse",
         "icon": "$(type-hierarchy)"
+      },
+      {
+        "command": "clickhouse.showTableHealth",
+        "title": "Show Storage Health",
+        "category": "ClickHouse",
+        "icon": "$(pulse)"
       }
     ],
     "menus": {
@@ -573,6 +579,16 @@
           "command": "clickhouse.showCluster",
           "when": "view == clickhouseExplorer && viewItem == clickhouse.cluster",
           "group": "1_cluster"
+        },
+        {
+          "command": "clickhouse.showTableHealth",
+          "when": "view == clickhouseExplorer && viewItem =~ /^clickhouse\\.(server|cluster)$/",
+          "group": "1_cluster"
+        },
+        {
+          "command": "clickhouse.showTableHealth",
+          "when": "view == clickhouseExplorer && viewItem == clickhouse.table",
+          "group": "2_inspect"
         }
       ],
       "notebook/cell/title": [

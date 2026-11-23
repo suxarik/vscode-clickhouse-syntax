@@ -4,6 +4,40 @@
 
 All notable changes to this extension will be documented in this file.
 
+## [2.6.0] - 2026-11-23
+
+### Added
+
+- **Show Storage Health.** The question asked when inserts start failing, answered
+  from the server's own `system` tables. Right-click the server or a single table
+  in the explorer, or run it from the palette.
+
+  It reports a partition close to `parts_to_throw_insert`, the point where inserts
+  fail with `TOO_MANY_PARTS`. The limits are read from the server rather than
+  assumed, and the page says whether they came from the server or are ClickHouse's
+  defaults, since a table may override either. It also reports a mutation that keeps
+  failing, with its error and the `KILL MUTATION` that ends it; a merge or mutation
+  that has run for hours; a disk running out of room for merges; and parts ClickHouse
+  detached itself, which are rows missing from the table. A table made of many tiny
+  parts gets a gentler word about batching inserts.
+
+  One finding per table, each with the number behind it. Each question is its own
+  query: if one is refused, the page names it instead of leaving a gap that looks
+  like health. Everything it runs is read-only.
+
+### Changed
+
+- **The catalog is read from ClickHouse 26.10.** 2008 functions (91 new), 2343
+  settings (117 new), 99 table functions, 85 engines and 116 formats, so completion,
+  hover and the linter know them. Among the additions: `regrSlope` and the other
+  `regr*` aggregates, `arrayRemoveAt`, `mapEntries`, the `ipcrypt*` functions, the
+  `elasticsearch`, `obfuscate`, `timeSeriesTimeRanges` and `traceView` table
+  functions, the `Elasticsearch` and `Obfuscate` engines, and the `Freeform` and
+  `SQLite` formats. `detectTonality`, which ClickHouse removed, is gone with it.
+
+- **Dependencies.** Patch and minor updates to the test, lint and formatting tools.
+  The lockfile also recorded an old package version and now matches the package.
+
 ## [2.5.7] - 2026-10-16
 
 ### Changed
