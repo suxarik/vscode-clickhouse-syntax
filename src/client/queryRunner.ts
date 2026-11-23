@@ -17,6 +17,7 @@ import { ClickHouseClient, newQueryId } from './httpClient';
 import { classifyStatement, gate, StatementSummary } from './safety';
 import { QueryHistory } from './history';
 import { ClickHouseError } from './types';
+import { editorParameters } from './editorParameters';
 
 export interface RunTarget {
     sql: string;
@@ -154,6 +155,12 @@ export class QueryRunner implements vscode.Disposable {
         const summaries = target.statements.map(classifyStatement);
         if (!(await this.permitted(summaries, profileName))) return;
 
+        // A caller that already has values (a runbook, which remembers them)
+        // passes them; otherwise any placeholder is asked for here, after the
+        // gate so nobody is prompted for a query that was going to be refused.
+        const parameters = target.parameters ?? (await editorParameters.resolve(target.sql));
+        if (parameters === undefined) return;
+
         const client = await this.connections.client(profileName);
         if (!client) return;
 
@@ -184,7 +191,7 @@ export class QueryRunner implements vscode.Disposable {
                 readOnly: profile?.allowWrite !== true,
                 maxRows: config.get<number>('query.maxResultRows', 100_000),
                 maxExecutionTime: config.get<number>('query.maxExecutionTime', 60),
-                parameters: target.parameters,
+                parameters,
                 // Columns are known before any row arrives, and the rows are
                 // streamed once. Re-sending them at the end would double the
                 // traffic and throw away what the view had already drawn.

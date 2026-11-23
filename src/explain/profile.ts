@@ -59,6 +59,8 @@ export interface CollectOptions {
     /** The profile permits writes, so the log can be flushed instead of waited for. */
     canFlushLogs: boolean;
     maxExecutionTime?: number;
+    /** Values for `{name:Type}` placeholders, substituted by the server. */
+    parameters?: Record<string, string>;
     timeoutMs?: number;
     pollIntervalMs?: number;
     /** Injected by tests so they do not wait. */
@@ -127,6 +129,7 @@ export async function collectProfile(
         readOnly: true,
         queryId: options.queryId,
         maxExecutionTime: options.maxExecutionTime,
+        parameters: options.parameters,
         settings: { log_processors_profiles: '1' },
     });
 

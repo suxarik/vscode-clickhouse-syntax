@@ -1,6 +1,7 @@
 /**
  * The EXPLAIN command and the read-only document it opens.
  */
+import { editorParameters } from './editorParameters';
 import * as vscode from 'vscode';
 import { AnalysisCache } from '../analysis';
 import { buildExplainDocument } from './explain';
@@ -80,6 +81,9 @@ export function registerExplainCommands(
         // Strip a trailing semicolon so EXPLAIN wraps a single statement.
         const sql = statement.replace(/;\s*$/, '');
 
+        const parameters = await editorParameters.resolve(sql);
+        if (parameters === undefined) return;
+
         await vscode.window.withProgress(
             { location: vscode.ProgressLocation.Window, title: `ClickHouse: EXPLAIN ${picked.label}` },
             async () => {
@@ -88,6 +92,7 @@ export function registerExplainCommands(
                     const result = await client.query(`EXPLAIN ${picked.expression} ${sql}`, {
                         readOnly: true,
                         maxExecutionTime: 30,
+                        parameters,
                     });
                     const raw = result.rows.map(row => String(row[0] ?? '')).join('\n');
                     const content = buildExplainDocument({

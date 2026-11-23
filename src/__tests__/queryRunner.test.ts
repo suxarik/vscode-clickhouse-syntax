@@ -93,6 +93,44 @@ function target(sql: string) {
     return resolveTarget(document, new vscode.Selection(start, start), analysisCache)!;
 }
 
+describe('query parameters', () => {
+    const input = vscode.window.showInputBox as jest.Mock;
+
+    it('asks for a placeholder and sends it as a parameter, not in the text', async () => {
+        const { runner } = makeRunner();
+        input.mockReset().mockResolvedValueOnce("x'; DROP TABLE t; --");
+        await runner.run(target('SELECT {name:String}'));
+
+        expect(requests).toHaveLength(1);
+        expect(requests[0].url).toContain('param_name=');
+        expect(decodeURIComponent(requests[0].url.replace(/\+/g, ' '))).toContain("param_name=x'; DROP TABLE t; --");
+        expect(requests[0].body).not.toContain('DROP TABLE');
+    });
+
+    it('sends nothing when the prompt is dismissed', async () => {
+        const { runner } = makeRunner();
+        input.mockReset().mockResolvedValueOnce(undefined);
+        await runner.run(target('SELECT {name:String}'));
+        expect(requests).toHaveLength(0);
+    });
+
+    it('does not ask when the caller already has the values', async () => {
+        const { runner } = makeRunner();
+        input.mockReset();
+        await runner.run({ ...target('SELECT {name:String}'), parameters: { name: 'a' } });
+        expect(input).not.toHaveBeenCalled();
+        expect(requests[0].url).toContain('param_name=a');
+    });
+
+    it('does not ask about a statement the gate refuses', async () => {
+        const { runner } = makeRunner();
+        input.mockReset();
+        await runner.run(target('DROP TABLE t WHERE {x:String}'));
+        expect(input).not.toHaveBeenCalled();
+        expect(requests).toHaveLength(0);
+    });
+});
+
 describe('resolveTarget', () => {
     it('takes the statement under the cursor', () => {
         const { document } = docAt('SELECT 1;\nSELECT 2;');

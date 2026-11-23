@@ -10,6 +10,7 @@ import { AnalysisCache } from '../analysis';
 import { ConnectionManager } from '../client/connectionManager';
 import { ClickHouseClient, newQueryId } from '../client/httpClient';
 import { classifyStatement } from '../client/safety';
+import { editorParameters } from '../client/editorParameters';
 import { resolveTarget } from '../client/queryRunner';
 import { parse } from '../parser/parser';
 import { buildPlanGraph } from './graph';
@@ -270,6 +271,10 @@ export function registerAnalyzeCommands(
      * does, rather than a second implementation that drifts.
      */
     async function buildPlan(sql: string): Promise<PlanPayload | string> {
+        // The query is run once for the profile, so it needs its values first.
+        const parameters = await editorParameters.resolve(sql);
+        if (parameters === undefined) return 'Cancelled: no value was given for a query parameter.';
+
         const profile = connections.activeProfileName();
         const client = await connections.client();
         if (!client || !profile) return 'No connection is selected.';
@@ -280,6 +285,7 @@ export function registerAnalyzeCommands(
         const explained = await client.query(`EXPLAIN PLAN indexes = 1 ${sql}`, {
             readOnly: true,
             maxExecutionTime: 30,
+            parameters,
         });
         const explain = explained.rows.map(row => String(row[0] ?? '')).join('\n');
 
@@ -288,6 +294,7 @@ export function registerAnalyzeCommands(
             queryId,
             canFlushLogs,
             maxExecutionTime: config.get<number>('query.maxExecutionTime', 60),
+            parameters,
         });
 
         if (collected.rows.length === 0) {
