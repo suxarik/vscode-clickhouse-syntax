@@ -44,7 +44,7 @@ function section(title: string, content: string, note?: string): string {
     return `<section><h2>${escapeHtml(title)}</h2>${note ? `<p class="note">${escapeHtml(note)}</p>` : ''}${content}</section>`;
 }
 
-function findingCard(finding: Finding): string {
+export function findingCard(finding: Finding): string {
     return (
         `<article class="finding ${finding.importance}">` +
         `<div class="badge">${escapeHtml(finding.importance)}</div>` +
