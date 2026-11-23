@@ -39,7 +39,12 @@ to `settings.json`.
   arrive in about 1.6 seconds and render as fewer than eighty DOM nodes.
 - **Sort, filter, resize.** Drag a column edge, or double-click it to fit the
   contents. Expand nested `Array` / `Map` / `Tuple` / `JSON` cells in place.
-- **Copy or export** as TSV, CSV, JSON or Markdown.
+- **Parameters in any editor.** `WHERE d >= {start:Date}` asks for the value when
+  you run, explain or analyze it, with the last answer already in the box. The
+  server substitutes it with the declared type, so a typed value cannot become SQL.
+- **Copy or export** as TSV, CSV, JSON, JSON Lines, Markdown, or as an
+  `INSERT … VALUES` statement that puts the rows back — 64-bit integers exact,
+  strings escaped, arrays, tuples and maps as literals.
 - **Charts** for a two-column result — a label and a number gives bars, a time
   and a number gives a line. Inline SVG in your theme's colours.
 - **Cancel** sends `KILL QUERY`, so the work stops on the server rather than the
@@ -150,6 +155,30 @@ what each shard was asked to read and whether that was even.
 
 Everything here reads. A cluster is looked at during an incident, which is
 exactly when a tool should not be able to make anything worse.
+
+### 📈 What the server has been asked
+
+**ClickHouse: Show Query Insights** reads `system.query_log` and groups statements
+by shape, so a dashboard that issues the same query ten thousand times with a
+different date is one row, with its real total cost. Four views: slowest overall,
+most memory, failing, and most rows read, over the last hour, 6 hours, day or
+week. Each row says how often it ran, its p95, what it read per run, and
+anything worth a word — a scan that reads three million rows to return one, a
+tail much slower than the average, how often it failed and with what error.
+**Open** puts the statement in an editor, where Explain and Analyze are one
+keystroke away.
+
+### 🔗 Where a table's data comes from
+
+**ClickHouse: Show Table Lineage** shows what feeds a table and what it feeds:
+materialized views, `Distributed` and `Buffer` tables, followed as far as they
+go, with every name a click away. A write into one table can quietly become
+writes to several, and a broken view three hops away looks like inserts failing
+somewhere that seems fine. So it says when a view writes to a table that does
+not exist, and when one table runs five or more views on every insert.
+
+It shows what ClickHouse itself runs. A Kafka consumer or an ETL job outside the
+server is not visible to it.
 
 ### 🩺 Storage health
 
@@ -323,7 +352,7 @@ catalog came from.
 
 ## Commands
 
-48 commands, all under **ClickHouse:** in the palette. The ones worth knowing:
+50 commands, all under **ClickHouse:** in the palette. The ones worth knowing:
 
 | Command | What it does |
 | --- | --- |
@@ -333,6 +362,8 @@ catalog came from.
 | Analyze Query | Runs it and draws where the time went |
 | Show Cluster | Shards, replicas, and where the data sits |
 | Show Storage Health | Parts, merges, mutations, disks and detached parts |
+| Show Query Insights | Slowest, heaviest and failing statements, by shape |
+| Show Table Lineage | What feeds a table, and what it feeds |
 | Advise on Schema | What several analysed queries had in common |
 | Cancel Query | Sends `KILL QUERY` |
 | Profile Last Query | Real counters from `system.query_log` |

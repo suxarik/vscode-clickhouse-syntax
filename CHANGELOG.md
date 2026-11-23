@@ -25,6 +25,35 @@ All notable changes to this extension will be documented in this file.
   query: if one is refused, the page names it instead of leaving a gap that looks
   like health. Everything it runs is read-only.
 
+- **Query parameters work in any editor.** `{name:Type}` placeholders were only
+  understood in runbooks; in a plain `.sql` file the placeholder reached the server
+  unsubstituted and the query failed. Run, Explain and Analyze now ask for each value,
+  with the last answer for that name already filled in, and send it as ClickHouse's own
+  query parameter. Dismissing the prompt sends nothing. It asks after the safety gate,
+  so nobody is prompted for a statement that was going to be refused.
+
+- **Show Query Insights.** Reads `system.query_log` and groups statements by
+  `normalized_query_hash`, so one query run with many different literals is one row
+  with its real total cost. Four views (slowest overall, most memory, failing, most rows
+  read) over an hour, 6 hours, a day or a week. Each row carries its runs, p95, what it
+  reads per run and what it failed with, and notes a scan that reads millions of rows to
+  return a handful or a tail far slower than the average. **Open** puts the statement in
+  an editor beside the panel. The log's own reads are left out, or the first thing it
+  reported would be itself.
+
+- **Show Table Lineage.** What feeds a table and what it feeds, through materialized
+  views (with or without `TO`, including the inner table a view makes for itself),
+  `Distributed` and `Buffer` tables. Names with backticks, hyphens or spaces are read
+  correctly. It reports a view whose target table does not exist, which makes inserts to
+  the view's source fail, and a table that runs five or more views on every insert.
+
+- **Copy or export as JSON Lines or as an INSERT statement.** JSON Lines is one object per
+  line, which `INSERT … FORMAT JSONEachRow` reads back. The INSERT keeps 64-bit integers
+  exact, escapes strings so a value cannot close its own quote, and writes arrays, tuples
+  and maps as literals. The table is the placeholder `table_name`, since a result has no
+  table. Both were checked by inserting the output into a real server and comparing every
+  row.
+
 ### Changed
 
 - **The catalog is read from ClickHouse 26.10.** 2008 functions (91 new), 2343

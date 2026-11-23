@@ -331,6 +331,18 @@
         "title": "Show Storage Health",
         "category": "ClickHouse",
         "icon": "$(pulse)"
+      },
+      {
+        "command": "clickhouse.showQueryInsights",
+        "title": "Show Query Insights",
+        "category": "ClickHouse",
+        "icon": "$(graph-line)"
+      },
+      {
+        "command": "clickhouse.showTableLineage",
+        "title": "Show Table Lineage",
+        "category": "ClickHouse",
+        "icon": "$(git-merge)"
       }
     ],
     "menus": {
@@ -586,7 +598,17 @@
           "group": "1_cluster"
         },
         {
+          "command": "clickhouse.showQueryInsights",
+          "when": "view == clickhouseExplorer && viewItem =~ /^clickhouse\\.(server|cluster)$/",
+          "group": "1_cluster"
+        },
+        {
           "command": "clickhouse.showTableHealth",
+          "when": "view == clickhouseExplorer && viewItem == clickhouse.table",
+          "group": "2_inspect"
+        },
+        {
+          "command": "clickhouse.showTableLineage",
           "when": "view == clickhouseExplorer && viewItem == clickhouse.table",
           "group": "2_inspect"
         }
