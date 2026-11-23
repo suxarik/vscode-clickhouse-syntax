@@ -4,19 +4,19 @@
  */
 
 /** ClickHouse version this catalog was read from. */
-export const CATALOG_VERSION = "26.9.19.9";
+export const CATALOG_VERSION = "26.10.4.207";
 
 /** UTC date of generation. */
-export const CATALOG_GENERATED_AT = "2026-10-16";
+export const CATALOG_GENERATED_AT = "2026-11-23";
 
 export const CATALOG_COUNTS = {
-    "functions": 1918,
-    "tableFunctions": 95,
-    "documentedFunctions": 1683,
+    "functions": 2008,
+    "tableFunctions": 99,
+    "documentedFunctions": 1723,
     "dataTypes": 141,
-    "engines": 83,
-    "settings": 2226,
-    "formats": 114,
-    "keywords": 660,
-    "systemTables": 155
+    "engines": 85,
+    "settings": 2343,
+    "formats": 116,
+    "keywords": 667,
+    "systemTables": 178
 };
