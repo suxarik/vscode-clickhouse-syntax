@@ -53,4 +53,4 @@ export interface CellRange {
     toColumn: number;
 }
 
-export type SerializationFormat = 'tsv' | 'csv' | 'json' | 'markdown';
+export type SerializationFormat = 'tsv' | 'csv' | 'json' | 'jsonl' | 'sql' | 'markdown';

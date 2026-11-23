@@ -63,6 +63,91 @@ function toJson(input: SerializeInput): string {
     return JSON.stringify(objects, null, 2);
 }
 
+/** One JSON object per line: ClickHouse's own `JSONEachRow`, which `INSERT … FORMAT JSONEachRow` reads back. */
+function toJsonLines(input: SerializeInput): string {
+    return input.rows
+        .map(row => {
+            const object: Record<string, unknown> = {};
+            input.columns.forEach((column, index) => {
+                object[column.name] = row[index] ?? null;
+            });
+            return JSON.stringify(object);
+        })
+        .join('\n');
+}
+
+const NUMERIC_TYPE = /^(U?Int(8|16|32|64|128|256)|Float(32|64)|BFloat16|Decimal(32|64|128|256)?(\(.*\))?)$/;
+const NUMBER_TEXT = /^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?$|^[-+]?(nan|inf)$/i;
+
+/** `Nullable(LowCardinality(UInt8))` → `UInt8`, the type that decides how a value is written. */
+function innerType(type: string): string {
+    let current = type.trim();
+    for (;;) {
+        const wrapped = /^(?:Nullable|LowCardinality)\((.*)\)$/.exec(current);
+        if (!wrapped) return current;
+        current = wrapped[1];
+    }
+}
+
+function quote(text: string): string {
+    return `'${text
+        .replace(/\\/g, '\\\\')
+        .replace(/'/g, "\\'")
+        .replace(/\n/g, '\\n')
+        .replace(/\r/g, '\\r')
+        .replace(/\t/g, '\\t')
+        .replace(/\0/g, '\\0')}'`;
+}
+
+function numberLiteral(value: number): string {
+    if (Number.isNaN(value)) return 'nan';
+    if (!Number.isFinite(value)) return value > 0 ? 'inf' : '-inf';
+    return String(value);
+}
+
+/**
+ * A value as a ClickHouse literal.
+ *
+ * Numbers are written bare when the column says they are numbers, even though a
+ * 64-bit one arrives as a string to stay exact. Everything else is quoted and
+ * escaped, so a value cannot close the string it sits in.
+ */
+function literal(value: unknown, type: string): string {
+    if (value === null || value === undefined) return 'NULL';
+    const inner = innerType(type);
+
+    if (typeof value === 'boolean') return value ? 'true' : 'false';
+    if (typeof value === 'number') return numberLiteral(value);
+    if (typeof value === 'string') {
+        return NUMERIC_TYPE.test(inner) && NUMBER_TEXT.test(value.trim()) ? value.trim() : quote(value);
+    }
+    if (Array.isArray(value)) {
+        const element = /^Array\((.*)\)$/.exec(inner)?.[1] ?? '';
+        const items = value.map(item => literal(item, element));
+        return inner.startsWith('Tuple(') ? `(${items.join(', ')})` : `[${items.join(', ')}]`;
+    }
+    if (typeof value === 'object') {
+        const entries = Object.entries(value as Record<string, unknown>).map(
+            ([key, item]) => `${quote(key)}: ${literal(item, '')}`
+        );
+        return `{${entries.join(', ')}}`;
+    }
+    return quote(String(value));
+}
+
+const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const identifier = (name: string): string => (IDENTIFIER.test(name) ? name : `\`${name.replace(/`/g, '\\`')}\``);
+
+/** A statement that puts these rows back. The table is a placeholder to be edited, since a result has no table. */
+function toInsert(input: SerializeInput): string {
+    if (input.rows.length === 0) return '';
+    const columns = input.columns.map(column => identifier(column.name)).join(', ');
+    const values = input.rows.map(
+        row => `(${input.columns.map((column, index) => literal(row[index], column.type)).join(', ')})`
+    );
+    return `INSERT INTO table_name (${columns}) VALUES\n${values.join(',\n')};`;
+}
+
 function toMarkdown(input: SerializeInput): string {
     const header = input.columns.map(column => column.name);
     const escape = (text: string) => text.replace(/\|/g, '\\|').replace(/\n/g, ' ');
@@ -90,6 +175,10 @@ export function serialize(input: SerializeInput, format: SerializationFormat): s
             return toCsv(input);
         case 'json':
             return toJson(input);
+        case 'jsonl':
+            return toJsonLines(input);
+        case 'sql':
+            return toInsert(input);
         case 'markdown':
             return toMarkdown(input);
         default:
@@ -101,5 +190,7 @@ export const FILE_EXTENSION: Record<SerializationFormat, string> = {
     tsv: 'tsv',
     csv: 'csv',
     json: 'json',
+    jsonl: 'jsonl',
+    sql: 'sql',
     markdown: 'md',
 };

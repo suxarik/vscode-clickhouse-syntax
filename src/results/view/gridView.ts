@@ -664,11 +664,15 @@ const TEMPLATE = `
     <button data-action="copy" data-format="tsv">TSV</button>
     <button data-action="copy" data-format="csv">CSV</button>
     <button data-action="copy" data-format="json">JSON</button>
+    <button data-action="copy" data-format="jsonl">JSON Lines</button>
+    <button data-action="copy" data-format="sql">INSERT</button>
     <button data-action="copy" data-format="markdown">MD</button>
   </span>
   <span class="ch-menu">Export
     <button data-action="export" data-format="csv">CSV</button>
     <button data-action="export" data-format="json">JSON</button>
+    <button data-action="export" data-format="jsonl">JSON Lines</button>
+    <button data-action="export" data-format="sql">INSERT</button>
   </span>
   <button class="ch-chart-toggle" hidden>Chart</button>
 </div>

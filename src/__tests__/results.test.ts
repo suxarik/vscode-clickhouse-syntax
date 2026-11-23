@@ -124,6 +124,75 @@ describe('footer formatting', () => {
     });
 });
 
+describe('serialize as JSON Lines and INSERT', () => {
+    const columns: ColumnMeta[] = [
+        { name: 'id', type: 'UInt64' },
+        { name: 'name', type: 'Nullable(String)' },
+    ];
+
+    it('writes one object per line', () => {
+        const lines = serialize({ columns, rows: [['1', 'a'], ['2', null]] }, 'jsonl').split('\n');
+        expect(lines.map(line => JSON.parse(line))).toEqual([
+            { id: '1', name: 'a' },
+            { id: '2', name: null },
+        ]);
+    });
+
+    it('writes nothing for no rows', () => {
+        expect(serialize({ columns, rows: [] }, 'jsonl')).toBe('');
+        expect(serialize({ columns, rows: [] }, 'sql')).toBe('');
+    });
+
+    it('writes an INSERT with a placeholder table and one tuple per row', () => {
+        expect(serialize({ columns, rows: [['1', 'a'], ['2', null]] }, 'sql')).toBe(
+            'INSERT INTO table_name (id, name) VALUES\n(1, \'a\'),\n(2, NULL);'
+        );
+    });
+
+    it('keeps a 64-bit integer exact, as a bare number', () => {
+        const big = '18446744073709551615';
+        expect(serialize({ columns: [{ name: 'n', type: 'UInt64' }], rows: [[big]] }, 'sql')).toContain(`(${big})`);
+    });
+
+    it('quotes a string that merely looks like a number', () => {
+        expect(serialize({ columns: [{ name: 's', type: 'String' }], rows: [['123']] }, 'sql')).toContain("('123')");
+    });
+
+    it('does not let a value close its own string', () => {
+        const hostile = "x'); DROP TABLE t; --";
+        const sql = serialize({ columns: [{ name: 's', type: 'String' }], rows: [[hostile]] }, 'sql');
+        expect(sql).toContain("('x\\'); DROP TABLE t; --')");
+        // The quote that would have ended the string is escaped, so the text stays one value.
+        expect(sql.match(/(?<!\\)'/g)).toHaveLength(2);
+    });
+
+    it('escapes backslashes, newlines and tabs', () => {
+        const sql = serialize({ columns: [{ name: 's', type: 'String' }], rows: [['a\\b\nc\td']] }, 'sql');
+        expect(sql).toContain("'a\\\\b\\nc\\td'");
+    });
+
+    it('writes arrays, tuples and maps as literals, and quotes odd column names', () => {
+        const sql = serialize(
+            {
+                columns: [
+                    { name: 'a b', type: 'Array(UInt64)' },
+                    { name: 't', type: 'Tuple(String, UInt8)' },
+                    { name: 'm', type: 'Map(String, UInt8)' },
+                    { name: 'b', type: 'Bool' },
+                ],
+                rows: [[['1', '2'], ['x', 3], { k: 1 }, true]],
+            },
+            'sql'
+        );
+        expect(sql).toBe("INSERT INTO table_name (`a b`, t, m, b) VALUES\n([1, 2], ('x', 3), {'k': 1}, true);");
+    });
+
+    it('has file extensions for both', () => {
+        expect(FILE_EXTENSION.jsonl).toBe('jsonl');
+        expect(FILE_EXTENSION.sql).toBe('sql');
+    });
+});
+
 describe('serialize', () => {
     const columns: ColumnMeta[] = [
         { name: 'id', type: 'UInt64' },
