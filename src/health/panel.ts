@@ -1,13 +1,14 @@
 /**
  * The storage health panel.
  *
- * The host builds the page and the page has one behaviour, Refresh, so there is
- * no message protocol to speak of. The script is the only one allowed to run
- * and carries a nonce; nothing from the server is ever inside it.
+ * The host builds the page. The page's behaviours are Refresh, which is the only
+ * message it sends, and searching and paging the partition list, which never
+ * leaves the page. The script is the only one allowed to run and carries a
+ * nonce; nothing from the server is ever inside it.
  */
 import * as vscode from 'vscode';
 import { Finding } from '../advice/types';
-import { HEALTH_STYLE, escapeHtml, renderHealth } from './render';
+import { HEALTH_PAGE_STYLE, HEALTH_SCRIPT, HEALTH_STYLE, escapeHtml, renderHealth } from './render';
 import { HealthView } from './types';
 
 export class HealthPanel implements vscode.Disposable {
@@ -53,13 +54,9 @@ export class HealthPanel implements vscode.Disposable {
 <head>
 <meta charset="UTF-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';">
-<style>${HEALTH_STYLE}</style>
+<style>${HEALTH_STYLE}${HEALTH_PAGE_STYLE}</style>
 </head>
-<body>${body}<script nonce="${nonce}">
-const api = acquireVsCodeApi();
-const button = document.getElementById('refresh');
-if (button) button.addEventListener('click', () => api.postMessage({ type: 'refresh' }));
-</script></body>
+<body>${body}<script nonce="${nonce}">${HEALTH_SCRIPT}</script></body>
 </html>`;
     }
 

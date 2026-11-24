@@ -2,9 +2,10 @@
  * Tests for query insights: what is asked of the log, what is said about each
  * statement, and that the page treats the log as hostile text.
  */
-import { fetchInsights, insightsSql, toShapes } from '../insights/fetch';
+import { LIMIT, fetchInsights, insightsSql, toShapes } from '../insights/fetch';
 import { parseMessage } from '../insights/panel';
-import { notesFor, renderInsights } from '../insights/render';
+import { notesFor, renderInsights, latencyTone, memoryTone } from '../insights/render';
+import { exportShapes } from '../insights/export';
 import { LENSES, Lens, QueryShape } from '../insights/types';
 import { QueryResult } from '../client/types';
 
@@ -165,5 +166,119 @@ describe('what the page may send', () => {
         expect(parseMessage({ type: 'open', index: 1.5 })).toBeUndefined();
         expect(parseMessage({ type: 'nope' } as never)).toBeUndefined();
         expect(parseMessage(undefined)).toBeUndefined();
+    });
+});
+
+describe('listing many statements', () => {
+    const many = Array.from({ length: 60 }, (_, i) => shape({ hash: String(i), example: `SELECT ${i}` }));
+
+    it('asks for enough to page through, not a single screen', () => {
+        expect(LIMIT).toBeGreaterThanOrEqual(100);
+        expect(insightsSql('time')).toContain(`LIMIT ${LIMIT}`);
+    });
+
+    it('bounds how much of one statement is carried', () => {
+        expect(insightsSql('time')).toMatch(/left\(argMax\(query, query_duration_ms\), \d+\) AS example/);
+    });
+
+    it('renders every row, for the page to filter and page in place', () => {
+        const html = renderInsights({ lens: 'time', hours: 24, shapes: many });
+        expect(html.match(/<tr data-i="/g)).toHaveLength(60);
+        expect(html).toContain('id="search"');
+        expect(html).toContain('id="prev"');
+        expect(html).toContain('data-export="csv"');
+        expect(html).toContain('data-export="json"');
+        expect(html).toContain('data-sort="p95"');
+    });
+
+    it('offers no search or paging when there is nothing to search', () => {
+        const html = renderInsights({ lens: 'time', hours: 24, shapes: [] });
+        expect(html).not.toContain('id="search"');
+        expect(html).not.toContain('id="prev"');
+    });
+
+    it('gives each row lower-cased text to search, covering statement, table, user and error', () => {
+        const html = renderInsights({
+            lens: 'errors',
+            hours: 24,
+            shapes: [
+                shape({
+                    example: 'SELECT Foo FROM Demo.Events',
+                    user: 'Analyst',
+                    errors: 1,
+                    lastError: 'Code: 60. Table GONE',
+                    tables: ['demo.events'],
+                }),
+            ],
+        });
+        const searchable = /data-s="([^"]*)"/.exec(html)?.[1] ?? '';
+        for (const word of ['select foo from demo.events', 'analyst', 'table gone', 'demo.events']) {
+            expect(searchable).toContain(word);
+        }
+        expect(searchable).toBe(searchable.toLowerCase());
+    });
+
+    it('escapes what a search is matched against too', () => {
+        const html = renderInsights({
+            lens: 'time',
+            hours: 24,
+            shapes: [shape({ example: 'x" onmouseover="alert(1)' })],
+        });
+        expect(html).not.toContain('" onmouseover="alert');
+    });
+
+    it('colours a slow tail and heavy memory, and leaves ordinary ones plain', () => {
+        expect(latencyTone(120)).toBe('good');
+        expect(latencyTone(2_000)).toBe('warn');
+        expect(latencyTone(30_000)).toBe('bad');
+        expect(memoryTone(100 * 1024 ** 2)).toBe('none');
+        expect(memoryTone(2 * 1024 ** 3)).toBe('warn');
+        expect(memoryTone(8 * 1024 ** 3)).toBe('bad');
+    });
+
+    it('puts the bar on the column the lens is about', () => {
+        const html = renderInsights({ lens: 'memory', hours: 24, shapes: [shape({ peakMemory: 100 }), shape()] });
+        // The larger of the two fills its cell, the other is sized against it.
+        expect(html).toMatch(/<td class="n [a-z]* bar" style="--w:100%"><span>1.00 KiB/);
+        expect(html).toMatch(/<td class="n [a-z]* bar" style="--w:10%"><span>100 B/);
+        // And only that column carries one.
+        expect(html.match(/ bar"/g)).toHaveLength(2);
+    });
+});
+
+describe('exporting', () => {
+    const rows = [
+        { shape: shape({ example: 'SELECT "a",\n1', tables: ['a.b', 'c.d'], lastError: 'x' }), rank: 3 },
+        { shape: shape({ example: 'SELECT 2' }), rank: 1 },
+    ];
+
+    it('writes CSV in the order given, quoting what needs it', () => {
+        const lines = exportShapes(rows, 'csv').split('\n');
+        expect(lines[0]).toMatch(/^rank,example,user,tables,runs,total_ms,p95_ms/);
+        expect(exportShapes(rows, 'csv')).toContain('3,"SELECT ""a"",\n1",default,a.b; c.d,10,1000,120');
+        expect(exportShapes(rows, 'csv').split('\n').at(-1)).toMatch(/^1,SELECT 2,/);
+    });
+
+    it('writes JSON with tables as a list and the same order', () => {
+        const parsed = JSON.parse(exportShapes(rows, 'json'));
+        expect(parsed.map((r: { rank: number }) => r.rank)).toEqual([3, 1]);
+        expect(parsed[0].tables).toEqual(['a.b', 'c.d']);
+        expect(parsed[0].p95_ms).toBe(120);
+    });
+});
+
+describe('what an export message may carry', () => {
+    it('keeps whole in-range positions once each, and a known format', () => {
+        expect(parseMessage({ type: 'export', format: 'csv', indices: [2, 0, 2, 1.5, -1, 'x', LIMIT] })).toEqual({
+            type: 'export',
+            format: 'csv',
+            indices: [2, 0],
+        });
+    });
+
+    it('drops an unknown format, or nothing to export', () => {
+        expect(parseMessage({ type: 'export', format: 'sql', indices: [0] })).toBeUndefined();
+        expect(parseMessage({ type: 'export', format: 'json', indices: [] })).toBeUndefined();
+        expect(parseMessage({ type: 'export', format: 'json', indices: 'all' })).toBeUndefined();
     });
 });

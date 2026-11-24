@@ -23,7 +23,15 @@ const ORDER: Record<Lens, string> = {
     scanned: 'read_rows_total DESC',
 };
 
-const LIMIT = 25;
+/**
+ * How many statements one read brings back. The page filters and pages these in
+ * place, so this is what search can see; a busy server has far more shapes than
+ * anyone reads, and the lens puts the ones that matter first.
+ */
+export const LIMIT = 500;
+
+/** Longest example kept, so a statement carrying a megabyte of VALUES cannot bloat the page. */
+const EXAMPLE_CHARS = 20_000;
 
 export function insightsSql(lens: Lens): string {
     // For "failing" the rows that matter are the failures, so the extra filter
@@ -31,7 +39,7 @@ export function insightsSql(lens: Lens): string {
     const having = lens === 'errors' ? 'HAVING errors > 0 ' : '';
     return (
         'SELECT toString(normalized_query_hash) AS hash, ' +
-        'argMax(query, query_duration_ms) AS example, ' +
+        `left(argMax(query, query_duration_ms), ${EXAMPLE_CHARS}) AS example, ` +
         'any(user) AS user, ' +
         'count() AS runs, ' +
         'sum(query_duration_ms) AS total_ms, ' +

@@ -3,6 +3,7 @@
  */
 import * as vscode from 'vscode';
 import { ConnectionManager } from '../client/connectionManager';
+import { ExportFormat, exportShapes } from './export';
 import { fetchInsights } from './fetch';
 import { InsightsPanel } from './panel';
 import { InsightsView, Lens, Window } from './types';
@@ -32,6 +33,25 @@ export function registerInsightsCommands(connections: ConnectionManager): vscode
         }
     }
 
+    /** What the page was listing when the button was pressed, saved as a file. */
+    async function save(format: ExportFormat, indices: number[]): Promise<void> {
+        const view = shown;
+        if (!view) return;
+        const rows = indices
+            .filter(index => index < view.shapes.length)
+            .map(index => ({ shape: view.shapes[index], rank: index + 1 }));
+        if (rows.length === 0) return;
+
+        const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+        const target = await vscode.window.showSaveDialog({
+            defaultUri: vscode.Uri.file(`clickhouse-query-insights-${view.lens}-${stamp}.${format}`),
+            filters: { [format.toUpperCase()]: [format] },
+        });
+        if (!target) return;
+        await vscode.workspace.fs.writeFile(target, Buffer.from(exportShapes(rows, format), 'utf8'));
+        vscode.window.setStatusBarMessage(`ClickHouse: ${rows.length} statements saved`, 3000);
+    }
+
     const panel = new InsightsPanel({
         onRefresh: () => void load(),
         onChange: (nextLens, nextHours) => {
@@ -48,6 +68,7 @@ export function registerInsightsCommands(connections: ConnectionManager): vscode
                 .openTextDocument({ language: 'clickhouse', content: `${example.trim()}\n` })
                 .then(document => vscode.window.showTextDocument(document, { viewColumn: vscode.ViewColumn.Beside }));
         },
+        onExport: (format, indices) => void save(format, indices),
     });
 
     return [

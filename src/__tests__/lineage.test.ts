@@ -12,6 +12,7 @@ import {
     lineageOf,
     viewTarget,
 } from '../lineage/graph';
+import { iconSvg } from '../webview/icons';
 import { renderLineage } from '../lineage/render';
 
 const table = (database: string, name: string, over: Partial<TableRow> = {}): TableRow => ({
@@ -244,5 +245,31 @@ describe('the page', () => {
         expect(html).toContain('does not exist');
         expect(html).not.toContain('data-focus="app.gone"');
         expect(html).toContain('data-focus="app.mv"');
+    });
+
+    it('draws each table with the icon the explorer gives its engine', () => {
+        const graph = buildGraph([
+            table('app', 'events', { dependents: [{ database: 'app', table: 'mv' }] }),
+            view('app', 'mv', 'CREATE MATERIALIZED VIEW app.mv TO app.gone AS SELECT 1'),
+        ]);
+        const { upstream, downstream } = lineageOf(graph, 'app.events');
+        const html = renderLineage('app.events', upstream, downstream, []);
+        // MergeTree is 'layers' and a materialized view 'zap' in the explorer.
+        expect(html).toContain(iconSvg('layers'));
+        expect(html).toContain(iconSvg('zap'));
+        expect(html).toContain(iconSvg('error'));
+        expect(iconSvg('layers')).not.toBe(iconSvg('zap'));
+    });
+
+    it('falls back to the table icon for a name it has no drawing for', () => {
+        expect(iconSvg('no-such-icon')).toBe(iconSvg('table'));
+    });
+
+    it('says so when a table is not connected to anything', () => {
+        const graph = buildGraph([table('app', 'lonely')]);
+        const { upstream, downstream } = lineageOf(graph, 'app.lonely');
+        const html = renderLineage('app.lonely', upstream, downstream, []);
+        expect(html).toContain('feeds nothing');
+        expect(html).not.toContain('class="card');
     });
 });

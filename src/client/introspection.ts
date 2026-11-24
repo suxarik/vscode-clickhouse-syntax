@@ -77,7 +77,8 @@ export async function introspect(
     // they are queryable through dictGet and worth completing.
     const dictionaryResult = await client
         .query(
-            `SELECT database, name, key_names, attribute_names, attribute_types, comment
+            `SELECT database, name, \`key.names\` AS key_names, \`attribute.names\` AS attribute_names,
+                    \`attribute.types\` AS attribute_types, comment
              FROM system.dictionaries
              WHERE database NOT IN (${excluded})
              ORDER BY database, name`,

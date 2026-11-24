@@ -3,7 +3,7 @@
  * nothing from the server can become markup.
  */
 import { DEFAULT_LIMITS, HealthClient, fetchHealth } from '../health/fetch';
-import { escapeHtml, renderHealth } from '../health/render';
+import { diskTone, escapeHtml, partsTone, renderHealth } from '../health/render';
 import { healthFindings } from '../health/rules';
 import { HealthView } from '../health/types';
 import { QueryResult } from '../client/types';
@@ -304,5 +304,84 @@ describe('the page', () => {
         expect(renderHealth(view(), [], 0)).toContain('Nothing to report');
         const defaults = renderHealth(view({ limitsFromServer: false, partitions: [partition(5)] }), [], 0);
         expect(defaults).toContain('ClickHouse defaults');
+    });
+});
+
+describe('the modern page', () => {
+    const html = (v: HealthView) => renderHealth(v, healthFindings(v), 0);
+
+    it('grades parts against the limit the server gave, and disks by what is left', () => {
+        expect(partsTone(20, DEFAULT_LIMITS)).toBe('good');
+        expect(partsTone(1500, DEFAULT_LIMITS)).toBe('warn');
+        expect(partsTone(2500, DEFAULT_LIMITS)).toBe('bad');
+        expect(partsTone(85, { delayAt: 60, throwAt: 100 })).toBe('bad');
+        expect(diskTone(50)).toBe('good');
+        expect(diskTone(15)).toBe('warn');
+        expect(diskTone(5)).toBe('bad');
+    });
+
+    it('opens with a summary tile for each thing it could read', () => {
+        const page = html(view({ partitions: [partition(2500)] }));
+        expect(page).toContain('Fullest partition');
+        expect(page).toContain('2,500 parts');
+        expect(page).toContain('83% of the 3,000 limit');
+        expect(page).toContain('1 to look at');
+        for (const label of ['Mutations', 'Merges running', 'Detached parts']) expect(page).toContain(label);
+    });
+
+    it('leaves out the tile for what could not be read rather than showing a zero', () => {
+        const page = html(view({ unavailable: ['mutations', 'detached parts'] }));
+        expect(page).not.toContain('>Mutations<');
+        expect(page).not.toContain('>Detached parts<');
+        expect(page).toContain('For what could be read');
+    });
+
+    it('marks a failing mutation and shows why', () => {
+        const page = html(
+            view({
+                mutations: [
+                    {
+                        database: 'demo',
+                        table: 'events',
+                        id: 'mutation_1.txt',
+                        command: 'DELETE WHERE 1',
+                        ageSeconds: 4000,
+                        partsToDo: 3,
+                        failReason: 'Code: 395',
+                    },
+                ],
+            })
+        );
+        expect(page).toContain('class="failing"');
+        expect(page).toContain('failing</span>');
+        expect(page).toContain('Code: 395');
+        expect(page).toContain('1 failing');
+    });
+
+    it('sizes a partition bar against the throw limit and marks where inserts slow', () => {
+        const page = html(view({ partitions: [partition(1500)] }));
+        expect(page).toContain('--w:50.0%');
+        expect(page).toContain('--m:33.3%');
+    });
+
+    it('gives each partition row lower-cased text to search, escaped', () => {
+        const page = html(view({ partitions: [partition(5, { table: 'Events"><b>' })] }));
+        const searchable = /data-s="([^"]*)"/.exec(page)?.[1] ?? '';
+        expect(searchable).toContain('demo.events&quot;&gt;&lt;b&gt;');
+        expect(page).not.toContain('"><b>');
+    });
+
+    it('draws a finding with its severity and the way out', () => {
+        const page = html(view({ partitions: [partition(2500)] }));
+        expect(page).toContain('class="finding high"');
+        expect(page).toContain('class="badge">high<');
+        expect(page).toContain('class="suggest"');
+    });
+
+    it('shows a disk as used against what is free', () => {
+        const page = html(view({ disks: [{ name: 'default', freeBytes: 5, totalBytes: 100 }] }));
+        expect(page).toContain('5.0% free');
+        expect(page).toContain('--w:95.0%');
+        expect(page).toContain('Least free disk');
     });
 });
