@@ -4,7 +4,10 @@
 
 All notable changes to this extension will be documented in this file.
 
-## [2.6.0] - 2026-11-23
+## [2.6.3] - 2026-11-24
+
+Three new pages for looking at a server, query parameters in any editor, two new export
+formats, and the catalog moved to ClickHouse 26.10.
 
 ### Added
 
@@ -12,60 +15,76 @@ All notable changes to this extension will be documented in this file.
   from the server's own `system` tables. Right-click the server or a single table
   in the explorer, or run it from the palette.
 
-  It reports a partition close to `parts_to_throw_insert`, the point where inserts
-  fail with `TOO_MANY_PARTS`. The limits are read from the server rather than
-  assumed, and the page says whether they came from the server or are ClickHouse's
-  defaults, since a table may override either. It also reports a mutation that keeps
-  failing, with its error and the `KILL MUTATION` that ends it; a merge or mutation
-  that has run for hours; a disk running out of room for merges; and parts ClickHouse
-  detached itself, which are rows missing from the table. A table made of many tiny
-  parts gets a gentler word about batching inserts.
+  The page opens with a row of tiles (overall status, the fullest partition, the least
+  free disk, unfinished mutations, merges running, detached parts), each coloured by how
+  worried to be. Below them are the findings, each with a severity icon and the number
+  behind it: a partition close to `parts_to_throw_insert`, the point where inserts fail
+  with `TOO_MANY_PARTS`; a mutation that keeps failing, with its error and the
+  `KILL MUTATION` that ends it; a merge or mutation that has run for hours; a disk running
+  out of room for merges; and parts ClickHouse detached itself, which are rows missing from
+  the table. A table made of many tiny parts gets a gentler word about batching inserts.
 
-  One finding per table, each with the number behind it. Each question is its own
-  query: if one is refused, the page names it instead of leaving a gap that looks
-  like health. Everything it runs is read-only.
-
-- **Query parameters work in any editor.** `{name:Type}` placeholders were only
-  understood in runbooks; in a plain `.sql` file the placeholder reached the server
-  unsubstituted and the query failed. Run, Explain and Analyze now ask for each value,
-  with the last answer for that name already filled in, and send it as ClickHouse's own
-  query parameter. Dismissing the prompt sends nothing. It asks after the safety gate,
-  so nobody is prompted for a statement that was going to be refused.
+  Partitions are drawn as a bar of parts against the insert limit, with a mark where inserts
+  start to slow, and can be searched and paged. The limits are read from the server rather
+  than assumed, and the page says whether they came from the server or are ClickHouse's
+  defaults, since a table may override either. Each question is its own query: if one is
+  refused, the page names it instead of leaving a gap that looks like health. Everything it
+  runs is read-only.
 
 - **Show Query Insights.** Reads `system.query_log` and groups statements by
-  `normalized_query_hash`, so one query run with many different literals is one row
-  with its real total cost. Four views (slowest overall, most memory, failing, most rows
-  read) over an hour, 6 hours, a day or a week. Each row carries its runs, p95, what it
-  reads per run and what it failed with, and notes a scan that reads millions of rows to
-  return a handful or a tail far slower than the average. **Open** puts the statement in
-  an editor beside the panel. The log's own reads are left out, or the first thing it
-  reported would be itself.
+  `normalized_query_hash`, so one query run with many different literals is one row with its
+  real total cost. Four views (slowest overall, most memory, failing, most rows read) over an
+  hour, 6 hours, a day or a week.
 
-- **Show Table Lineage.** What feeds a table and what it feeds, through materialized
-  views (with or without `TO`, including the inner table a view makes for itself),
-  `Distributed` and `Buffer` tables. Names with backticks, hyphens or spaces are read
-  correctly. It reports a view whose target table does not exist, which makes inserts to
-  the view's source fail, and a table that runs five or more views on every insert.
+  Up to 500 statements are loaded as a table you can work with. Search matches the statement,
+  the tables it touches, the user and the error text; every column sorts; the list is paged
+  (10, 25, 50 or 100 at a time). Slow tails and heavy memory are coloured, a thin bar shows
+  each statement's share of the current view, and failing statements are marked and show their
+  error. Each row carries its runs, p95, what it reads per run, and a note for a scan that
+  reads millions of rows to return a handful or a tail far slower than the average. Click a
+  statement to expand it. **Export** saves what is listed, in the order shown, as CSV or JSON.
+  **Open** puts the statement in an editor beside the panel. The log's own reads are left out,
+  or the first thing it reported would be itself.
+
+- **Show Table Lineage.** What feeds a table and what it feeds, drawn as a diagram: each table
+  is a card wearing the icon the explorer gives its engine, sources above and targets below,
+  joined by arrows. It follows materialized views (with or without `TO`, including the inner
+  table a view makes for itself), `Distributed` and `Buffer` tables, and clicking a card looks
+  from that table instead. Names with backticks, hyphens or spaces are read correctly. It
+  reports a view whose target table does not exist, drawn as a dashed red card, which makes
+  inserts to the view's source fail, and a table that runs five or more views on every insert.
+
+- **Query parameters work in any editor.** `{name:Type}` placeholders were only understood in
+  runbooks; in a plain `.sql` file the placeholder reached the server unsubstituted and the
+  query failed. Run, Explain and Analyze now ask for each value, with the last answer for that
+  name already filled in, and send it as ClickHouse's own query parameter. Dismissing the
+  prompt sends nothing. It asks after the safety gate, so nobody is prompted for a statement
+  that was going to be refused.
 
 - **Copy or export as JSON Lines or as an INSERT statement.** JSON Lines is one object per
   line, which `INSERT … FORMAT JSONEachRow` reads back. The INSERT keeps 64-bit integers
-  exact, escapes strings so a value cannot close its own quote, and writes arrays, tuples
-  and maps as literals. The table is the placeholder `table_name`, since a result has no
-  table. Both were checked by inserting the output into a real server and comparing every
-  row.
+  exact, escapes strings so a value cannot close its own quote, and writes arrays, tuples and
+  maps as literals. The table is the placeholder `table_name`, since a result has no table.
+  Both were checked by inserting the output into a real server and comparing every row.
 
 ### Changed
 
-- **The catalog is read from ClickHouse 26.10.** 2008 functions (91 new), 2343
-  settings (117 new), 99 table functions, 85 engines and 116 formats, so completion,
-  hover and the linter know them. Among the additions: `regrSlope` and the other
-  `regr*` aggregates, `arrayRemoveAt`, `mapEntries`, the `ipcrypt*` functions, the
-  `elasticsearch`, `obfuscate`, `timeSeriesTimeRanges` and `traceView` table
-  functions, the `Elasticsearch` and `Obfuscate` engines, and the `Freeform` and
-  `SQLite` formats. `detectTonality`, which ClickHouse removed, is gone with it.
+- **The catalog is read from ClickHouse 26.10.** 2008 functions (91 new), 2343 settings (117
+  new), 99 table functions, 85 engines and 116 formats, so completion, hover and the linter
+  know them. Among the additions: `regrSlope` and the other `regr*` aggregates,
+  `arrayRemoveAt`, `mapEntries`, the `ipcrypt*` functions, the `elasticsearch`, `obfuscate`,
+  `timeSeriesTimeRanges` and `traceView` table functions, the `Elasticsearch` and `Obfuscate`
+  engines, and the `Freeform` and `SQLite` formats. `detectTonality`, which ClickHouse
+  removed, is gone with it.
 
-- **Dependencies.** Patch and minor updates to the test, lint and formatting tools.
-  The lockfile also recorded an old package version and now matches the package.
+- **Dependencies.** Patch and minor updates to the test, lint and formatting tools. The
+  lockfile also recorded an old package version and now matches the package.
+
+### Fixed
+
+- **Dictionaries were missing from the explorer and completion.** The query that reads
+  `system.dictionaries` named columns that are called `key.names`, `attribute.names` and
+  `attribute.types`, so it failed on every server and the failure was swallowed.
 
 ## [2.5.7] - 2026-10-16
 

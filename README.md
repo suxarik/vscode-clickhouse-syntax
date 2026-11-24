@@ -162,20 +162,29 @@ exactly when a tool should not be able to make anything worse.
 by shape, so a dashboard that issues the same query ten thousand times with a
 different date is one row, with its real total cost. Four views: slowest overall,
 most memory, failing, and most rows read, over the last hour, 6 hours, day or
-week. Each row says how often it ran, its p95, what it read per run, and
-anything worth a word — a scan that reads three million rows to return one, a
-tail much slower than the average, how often it failed and with what error.
-**Open** puts the statement in an editor, where Explain and Analyze are one
-keystroke away.
+week.
+
+It loads the top 500 statements as a table you can work with: **search** matches
+the statement, the tables it touches, the user and the error text; every column
+**sorts**; the list is **paged** (10, 25, 50 or 100 at a time). A slow tail or heavy
+memory is coloured, a thin bar shows each statement's share of the view, and a
+failing one is marked and shows its error. Each row says how often it ran, its
+p95, what it read per run, and anything worth a word — a scan that reads three
+million rows to return one, a tail much slower than the average, how often it
+failed and with what error. Click a statement to expand it. **Export** saves what
+is listed, in the order shown, as CSV or JSON. **Open** puts the statement in an
+editor, where Explain and Analyze are one keystroke away.
 
 ### 🔗 Where a table's data comes from
 
-**ClickHouse: Show Table Lineage** shows what feeds a table and what it feeds:
-materialized views, `Distributed` and `Buffer` tables, followed as far as they
-go, with every name a click away. A write into one table can quietly become
-writes to several, and a broken view three hops away looks like inserts failing
-somewhere that seems fine. So it says when a view writes to a table that does
-not exist, and when one table runs five or more views on every insert.
+**ClickHouse: Show Table Lineage** draws what feeds a table and what it feeds as a
+diagram: each table is a card wearing the same icon the explorer gives its engine,
+sources above and targets below, joined by arrows. It follows materialized views,
+`Distributed` and `Buffer` tables as far as they go, and clicking a card looks from
+that table instead. A write into one table can quietly become writes to several,
+and a broken view three hops away looks like inserts failing somewhere that seems
+fine. So it says when a view writes to a table that does not exist — drawn as a
+dashed red card — and when one table runs five or more views on every insert.
 
 It shows what ClickHouse itself runs. A Kafka consumer or an ETL job outside the
 server is not visible to it.
@@ -186,12 +195,19 @@ server is not visible to it.
 failing, from the server's own `system` tables. Right-click the server, or a
 single table, in the explorer to look at everything or at one table.
 
-It reports a partition close to `parts_to_throw_insert` — the point where inserts
-fail with `TOO_MANY_PARTS` — read from the server's own settings rather than
-assumed; a mutation that keeps failing, with the error and the `KILL MUTATION`
-that ends it; a merge that has run for hours; a disk running out of room for
-merges; and parts ClickHouse detached itself, which are rows missing from the
-table. One finding per table, each with the number behind it.
+The page opens with a row of tiles — overall status, the fullest partition, the
+least free disk, unfinished mutations, merges running and detached parts — each
+coloured by how worried to be. Below them, the findings: a partition close to
+`parts_to_throw_insert` — the point where inserts fail with `TOO_MANY_PARTS` —
+read from the server's own settings rather than assumed; a mutation that keeps
+failing, with the error and the `KILL MUTATION` that ends it; a merge that has run
+for hours; a disk running out of room for merges; and parts ClickHouse detached
+itself, which are rows missing from the table. One finding per table, each with
+the number behind it.
+
+Partitions are drawn as a bar of parts against the insert limit, with a mark where
+inserts start to slow, and can be searched and paged. A failing mutation is marked
+and shows its error; disks show how full they are.
 
 Each question is its own query. If you lack rights on one of them, the page says
 which it could not read, rather than leaving a blank that looks like health.

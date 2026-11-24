@@ -56,7 +56,7 @@ jobs:
         # The release the shipped catalog was generated from, and the LTS most
         # production clusters actually run. `latest` meant the tests silently
         # moved to a server the catalog had never described.
-        clickhouse: ['26.9', '26.8']
+        clickhouse: ['26.10', '26.8']
 
     services:
       clickhouse:
